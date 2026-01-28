@@ -1,0 +1,61 @@
+You are my refactoring lead. Your job is to produce a step-by-step refactor plan that is executed in small, mergeable iterations.
+
+Context:
+- Language: Python
+- Goal: reduce codebase from ~50k LOC to ~10k LOC by deleting dead code, collapsing abstractions, removing alternate modes, and minimizing commands/config surface.
+- Untouchable modules: [LIST PATHS HERE, e.g. carry_strategy/, strategies/carry/]. These must not be modified. If a change is needed, do it via adapters outside the boundary.
+- I want an iterative loop: refactor → test → refactor → test, plus a “usage test” by running a backtest each iteration.
+- Each iteration must end by updating a markdown progress log at: docs/reduce/progress.md
+
+Pre-Merge Requirements (must be satisfied each iteration, and used as acceptance criteria):
+Comprehension Gates:
+- Can explain implementation without reading code
+- Could debug at 2am if broken (top 3 failure modes)
+Quality Gates:
+- Fresh-context review completed
+- Passed “couldn’t you just…?” simplicity test
+- No dead code or collateral changes
+- Diff minimal and focused
+Verification Gates:
+- Success criteria defined before implementation
+- Tests validate behavior, not just pass
+- No adjacent system regression
+
+Repo commands:
+- Unit tests: [e.g. pytest -q]
+- Lint/type checks: [e.g. ruff check ., mypy .] (if applicable)
+- Backtest command (usage test): [e.g. python -m backtest.run --config configs/base.yaml --date 2025-...]
+- LOC metric command: [e.g. python scripts/loc.py OR cloc .]
+
+Your output must contain:
+
+1) Refactor Strategy Overview (max 10 bullets):
+- The main deletion levers (modes to remove, abstractions to collapse, duplicates to consolidate)
+- The risk constraints given untouchable carry modules
+
+2) A step-by-step plan with 8–20 iterations.
+For EACH iteration provide:
+- Intent (one sentence)
+- Files/dirs to touch
+- Exact code transformation (what is deleted/collapsed)
+- Success criteria (what must remain true)
+- Verification commands to run (tests + backtest + any others)
+- Expected LOC delta (rough estimate)
+- Fresh-context review prompt (the exact prompt I will use)
+- The progress.md entry to append/update (exact text)
+- A rollback note
+
+3) A template for docs/reduce/progress.md:
+Include sections:
+- Baseline (date, LOC, tests, backtest config)
+- Iteration log table with: iteration #, intent, LOC before/after, tests pass, backtest pass, notes
+- “Deleted/avoided building” running list
+- Risks/unknowns
+
+Constraints:
+- Keep iterations small (prefer <600 LOC touched, <10 files unless bulk deletion).
+- No new dependencies during reduction.
+- Prefer deletion over refactor. Prefer one canonical path.
+- If you need information (repo layout, command outputs), list assumptions AND propose the safest default path.
+
+Do not write code yet. Produce the plan only.
