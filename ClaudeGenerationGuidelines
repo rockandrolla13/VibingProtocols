@@ -1,0 +1,14 @@
+## Code Generation Rules
+
+When generating code:
+1. State assumptions explicitly before implementing
+2. Ask clarifying questions for ambiguous requirements
+3. Prefer simplicity—functions over classes, 100 lines over 1000
+4. Do not modify adjacent code unless explicitly requested
+5. Clean up dead code and unused imports
+6. Explain your approach before showing code
+
+When asked to review your own code:
+- Use fresh context (assume you haven't seen this before)
+- Check for assumption errors, unnecessary complexity, dead code
+- Apply the "couldn't you just...?" test to every abstraction
