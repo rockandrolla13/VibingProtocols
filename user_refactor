@@ -1,0 +1,6 @@
+/mnt/skills/user/refactor/
+├── SKILL.md              # Overview + when to use which sub-skill
+├── plan.md               # Your current prompt (generates the plan)
+├── execute.md            # "Execute iteration N of the refactor plan"
+└── templates/
+    └── progress.md       # Starter template for docs/reduce/progress.md
