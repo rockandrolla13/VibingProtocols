@@ -1,0 +1,264 @@
+# PY-AERP-REDUCE: 50k → 10k (Python) with Untouchable Carry Strategy Modules
+
+## Objective
+Reduce repository LOC by ~80% while guaranteeing:
+- Carry strategy core logic is unchanged (byte-for-byte if you want)
+- External behavior remains stable (contracts, CLI/API I/O, schemas)
+- Verification improves enough to delete aggressively elsewhere
+
+---
+
+## 0) Hard Safety Rules (Carry Strategy Protection)
+
+### 0.1 Define the untouchable boundary
+Create `docs/reduce/untouchable.md` listing:
+- Directories/files that must not change (example)
+  - `carry_strategy/` (or whichever)
+  - `strategies/carry/`
+  - `core/carry/`
+- The *only allowed* changes in those files:
+  - Docstrings/comments (optional)
+  - Tests (allowed, preferred)
+  - Type hints (optional, but default: avoid)
+
+### 0.2 Enforce in CI
+Add a CI check that fails if PR changes untouchable modules.
+
+**Option A (simple):** Git diff guard
+- Fail build if any file in `UNTCHBL_PATTERNS` is modified.
+
+**Option B (stronger):** checksum lockfile
+- Compute SHA256 of all untouchable files; fail if changed.
+
+### 0.3 Require a “boundary adapter” policy
+All refactors must happen **outside** the carry module boundary.
+If other layers need changes, do so by:
+- Adapters (thin) around carry logic
+- Dependency injection via function arguments at boundary
+- Input/output normalization outside the boundary
+
+**Rule:** carry strategy code is a pure engine; everything else is plumbing.
+
+---
+
+## 1) Baseline Snapshot (Day 1)
+
+### 1.1 Produce a baseline report
+Create `docs/reduce/baseline.md` with:
+- LOC by package/module
+- Dependency list (direct + transitive)
+- Entry points:
+  - CLI commands
+  - Schedulers/jobs
+  - API endpoints (if any)
+- Configuration surface:
+  - env vars
+  - YAML/JSON configs
+  - feature flags
+- Current test status: pass/fail, runtime
+- “Hot paths”: critical workflows (at least 3)
+
+### 1.2 Freeze the “public contract”
+Create `docs/reduce/contract.md`:
+- Inputs and outputs that must not change (schemas, columns, fields)
+- Error behavior expectations
+- CLI/API signatures
+
+**Any contract change requires explicit PR + sign-off.**
+
+---
+
+## 2) Verification Scaffold (Enables Deletion)
+
+You cannot delete 40k LOC safely without guardrails. Build a *thin but powerful* scaffold.
+
+### 2.1 Add Golden Tests (snapshot tests)
+Choose 5–15 representative scenarios (fixtures) and snapshot:
+- outputs (JSON/CSV/parquet metadata)
+- key computed series
+- logs (optional)
+- key result objects (serialized)
+
+Use approval testing style:
+- `tests/golden/<case_name>/input.json`
+- `tests/golden/<case_name>/expected_output.json`
+
+**Rule:** golden tests cover end-to-end behavior *without touching carry internals*.
+
+### 2.2 Add Boundary Invariant Tests
+At the carry boundary, add tests that assert:
+- monotonic properties (if any)
+- no NaNs/infs
+- sign constraints
+- cashflow conservation (if relevant)
+- idempotence where expected
+
+These are short and high-signal.
+
+### 2.3 Add “Deletion Guard” tests
+If you remove any mode/flag/path, you must add a test proving:
+- the canonical path produces the expected behavior
+- and the removed path is no longer referenced
+
+---
+
+## 3) Build a Deletion Backlog (Where the 40k LOC will come from)
+
+Create `docs/reduce/deletion_map.md` with ranked targets:
+
+### 3.1 Top reduction buckets (usually biggest wins)
+A) Multiple modes:
+- multiple data backends
+- multiple execution modes (batch vs streaming vs notebook runner)
+- legacy vs new pipeline
+- simulation vs production split duplicated
+
+B) Over-architecture:
+- “services” forwarding calls
+- registries, plugin frameworks
+- factories/builders for simple objects
+- DI containers, heavy config layers
+- event buses that just dispatch locally
+
+C) Dead/legacy:
+- unused integrations
+- deprecated connectors
+- unused CLI flags
+- old config keys
+
+D) Duplicate implementations:
+- multiple ways to compute the same feature
+- multiple loaders for the same dataset
+- repeated normalization and mapping code
+
+### 3.2 Set measurable wave targets
+- Wave 1: 50k → 35k (obvious deletions)
+- Wave 2: 35k → 20k (kill alternate modes + collapse abstractions)
+- Wave 3: 20k → 10k (single canonical path; remove framework glue)
+
+---
+
+## 4) Reduction Mechanics: How each PR works (Repeatable)
+
+### 4.1 PR size rules
+- One PR = one intent
+- Prefer net-negative LOC
+- Cap PR to:
+  - ≤ 10 files changed (except mechanical deletions)
+  - ≤ 600 LOC changed (except mass deletions)
+
+### 4.2 Task Contract template (paste into PR description)
+- Intent:
+- Non-goals:
+- Untouchable modules impacted: (must be "none")
+- Assumptions:
+- Success criteria:
+- Verification plan:
+- Rollback plan:
+
+### 4.3 Agent instruction pattern (deletion-first)
+Always include:
+- “Delete first. Do not add abstractions.”
+- “If unsure, ask. Do not guess.”
+- “Prefer one canonical path.”
+- “No new dependencies during reduction.”
+
+### 4.4 Fresh-context AI review (mandatory)
+In a new chat/context:
+- identify wrong assumptions
+- identify abstraction bloat
+- identify dead code left behind
+- demand further deletions
+- list behavior-change risks
+
+Only allow simplification/deletion in this step.
+
+---
+
+## 5) The “Big Wins” Sequence (Python-specific)
+
+This is the typical order that yields 80% shrink.
+
+### Wave 1 (50k → 35k): obvious dead weight
+1) Delete unused CLI commands and their handlers
+2) Delete deprecated config keys + parsing branches
+3) Remove legacy integrations not used in contract
+4) Remove duplicate utility modules
+5) Delete unused tests that test deleted functionality (replace with golden tests)
+
+Deliverable: stable contract + golden suite passing.
+
+### Wave 2 (35k → 20k): kill alternate modes
+6) Pick ONE:
+   - one data access path (one loader abstraction)
+   - one config format (yaml OR env OR json)
+   - one orchestration style (one runner)
+7) Delete the others completely.
+8) Collapse “service layers” into direct functions.
+9) Replace class hierarchies with plain functions + dataclasses.
+
+Deliverable: single canonical execution pipeline that calls carry boundary.
+
+### Wave 3 (20k → 10k): collapse architecture
+10) Inline trivial adapters.
+11) Remove registries/plugins and replace with explicit imports.
+12) Collapse “model objects” into dataclasses only where helpful.
+13) Consolidate error handling; remove multi-path exception wrappers.
+
+Deliverable: small core plumbing + carry engine untouched.
+
+---
+
+## 6) A Key Pattern for Carry Strategy Projects: “Ring-Fence + Rewrite Plumbing”
+
+### 6.1 The ring-fence architecture
+- Inner ring: carry engine (untouchable)
+- Middle ring: boundary adapters (thin, test-heavy)
+- Outer ring: everything else (fair game to delete)
+
+### 6.2 The rewrite tactic
+You’re not “refactoring the repo”.
+You’re **rebuilding minimal plumbing** around carry engine:
+- A single canonical runner that:
+  1) loads inputs
+  2) normalizes
+  3) calls carry boundary
+  4) writes outputs
+
+Everything else is suspect.
+
+---
+
+## 7) Delete With Confidence: Required Evidence per PR
+
+Every PR must prove:
+- golden tests pass
+- boundary invariant tests pass
+- no changes in untouchable modules (CI enforced)
+- contract unchanged (unless explicitly approved)
+- net-negative LOC or justified exception
+
+---
+
+## 8) Practical Metrics (track every merge batch)
+Maintain `docs/reduce/progress.md`:
+- total LOC
+- LOC by module
+- dependencies count
+- number of entry points
+- number of config keys
+- test runtime
+- number of golden cases
+
+---
+
+## 9) End State (what 10k LOC looks like)
+At ~10k LOC you should see:
+- 1–2 entry points
+- 1 config system
+- 1 canonical pipeline
+- minimal dependency tree
+- carry engine untouched
+- golden tests + invariants provide safety net
+
+---
