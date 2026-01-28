@@ -1,0 +1,130 @@
+# Pre-Merge Requirements for AI-Generated Code
+**Version:** 1.0  
+**Applies to:** Any PR where AI/agents produced a material portion of the change  
+**Goal:** Prevent slop, assumption propagation, and comprehension debt while preserving velocity.
+
+This checklist is intentionally short but non-negotiable.  
+If a box cannot be checked, the PR stays **Draft**.
+
+---
+
+## 1. Comprehension Gates (Anti–Rubber-Stamping)
+
+These gates ensure the reviewer actually *owns* the code.
+
+- [ ] **Explain in 60 seconds**  
+  I can explain the approach, data flow, and control flow **without opening the diff**.
+
+- [ ] **Change simulation**  
+  I can describe one plausible follow-up change (feature, bug fix, or requirement shift) and point to:
+  - the file(s)
+  - the function(s)
+  where it would be implemented.
+
+- [ ] **2am debug plan**  
+  I can list the **top 3 likely failure modes** and where I would look first
+  (logs, assertions, tests, metrics).
+
+> If any of these feel uncomfortable, comprehension debt is present.  
+> Do not merge.
+
+---
+
+## 2. Quality Gates (Anti-Slop)
+
+These gates control abstraction bloat, dead code, and accidental scope creep.
+
+- [ ] **Fresh-context review completed**  
+  A second AI review was run in a clean context/window, acting as a critical senior engineer.  
+  **Summary pasted in PR**, including:
+  - assumptions spotted
+  - unnecessary abstractions
+  - deletion/simplification suggestions
+  - risk flags
+
+- [ ] **Simplicity test passed (“couldn’t you just…?”)**  
+  The PR explicitly answers (one sentence is enough):  
+  > *What did we delete or avoid building to keep this simple?*
+
+- [ ] **No collateral changes**  
+  - No unrelated refactors  
+  - No opportunistic formatting  
+  - No “while I was here” edits in adjacent systems
+
+- [ ] **Diff is minimal and focused**  
+  - One intent  
+  - Within agreed file/LOC limits **or** explicitly justified
+
+- [ ] **No dead code remains**  
+  Confirmed by:
+  - reference search, or
+  - static analysis, or
+  - explicit reviewer confirmation
+
+---
+
+## 3. Verification Gates (Anti-False Confidence)
+
+These gates ensure correctness is demonstrated, not assumed.
+
+- [ ] **Success criteria defined *before* implementation**  
+  Documented in the PR description (what “done” means).
+
+- [ ] **Tests validate behavior, not just execution**  
+  Tests assert observable outcomes (inputs → outputs, invariants), not internal structure.
+
+- [ ] **Regression surface enumerated**  
+  PR description lists what could plausibly break:
+  - APIs
+  - configs
+  - modes
+  - performance characteristics
+
+- [ ] **No adjacent system regression evidence provided**  
+  At least one of:
+  - targeted integration test  
+  - golden/snapshot comparison  
+  - explicit “not applicable” with rationale
+
+---
+
+## 4. Contract & Boundary Gates (Required when applicable)
+
+Use this section when the repo has stable contracts or untouchable modules
+(e.g. carry strategy, ledger core, security logic).
+
+- [ ] **Untouchable modules unchanged**  
+  Verified by CI diff guard or checksum.
+
+- [ ] **Boundary changes are covered**  
+  Any adapter / boundary logic includes:
+  - golden tests or snapshots
+  - invariant checks relevant to the domain
+
+---
+
+## 5. Required PR Evidence (Lightweight but Mandatory)
+
+Each PR must include the following short notes:
+
+- **Assumptions (≤5 bullets):**  
+  What the implementation assumes to be true.
+
+- **Failure modes (top 3):**  
+  What would hurt most if wrong.
+
+- **What we deleted / avoided building:**  
+  One or two concrete examples.
+
+- **Verification evidence:**  
+  Links to tests, snapshots, commands, or CI runs.
+
+---
+
+## Merge Rule
+
+> **If you cannot explain it, you do not merge it.**  
+> **If it feels complex, delete more before merging.**
+
+Velocity is not an excuse for lost understanding.
+This checklist exists to keep speed from turning into debt.
