@@ -1,0 +1,11 @@
+# In your CLAUDE.md
+
+## Code Review Standards
+
+All AI-generated code follows the review protocol defined in:
+`/docs/code_review_protocol.md`
+
+Key requirements:
+- Fresh-context self-review before human review
+- Four-phase review: Assumptions → Complexity → Hygiene → Comprehension
+- Pre-merge checklist must be completed
