@@ -1,0 +1,73 @@
+# AI-Assisted Engineering Review Protocol (AERP)
+**Version:** 1.0  
+**Purpose:** Convert high-velocity agent coding into *reliable, maintainable* production software with bounded risk, low slop, and controlled comprehension debt.  
+**Scope:** Applies to any PR where ≥20% of code was AI-generated (agents, copilots, autop-run refactors).  
+**Principle:** Humans own *problem definition, architecture, and verification*. Agents own *implementation throughput*.
+
+---
+
+## 0) Definitions (Use these words consistently)
+
+- **Task Contract:** The written specification + success criteria for the change.
+- **Assumption List:** Explicit assumptions the agent is making.
+- **Verification Plan:** Tests + checks that demonstrate correctness.
+- **Fresh-Context Review:** A second AI review performed from a clean prompt/window to reduce self-consistency bias.
+- **Comprehension Debt:** Code you can “approve” but cannot explain, modify safely, or reason about.
+
+---
+
+## 1) Non-Negotiables (Hard Gates)
+
+A PR **cannot** be opened (or must be set to Draft) unless:
+
+1. A **Task Contract** exists in the PR description.
+2. A **Verification Plan** exists and is implemented (tests or checks).
+3. The agent has produced an **Assumption List** and it is reviewed/accepted.
+4. The change is **bounded** (one intent, size limit respected).
+5. The PR includes an **Explainability Note** (how it works + failure modes).
+
+If any gate fails → stop and fix the process, not the code.
+
+---
+
+## 2) Roles & Responsibilities
+
+### 2.1 Author (Human)
+Owns:
+- Task Contract correctness
+- Scoping
+- Final design decisions
+- Verification strategy
+- Merge readiness
+
+### 2.2 Agent (LLM / Tool)
+Owns:
+- First draft implementation
+- Test implementation
+- Self-critique outputs (fresh-context review)
+- Simplification pass outputs
+
+### 2.3 Reviewer (Human)
+Owns:
+- Architectural correctness
+- Invariants and boundaries
+- Security / correctness scrutiny
+- Verification sufficiency
+- Comprehension check (must be able to explain)
+
+---
+
+## 3) Pre-Flight Setup (One-time per repo)
+
+### 3.1 Set Repo Guardrails
+Minimum required automation:
+- Formatter (language-appropriate)
+- Linter (strict mode if feasible)
+- Type checker (where applicable)
+- Unit tests in CI
+- Coverage reporting (trend, threshold if mature)
+- Security checks (SAST / dependency scan as feasible)
+
+### 3.2 Enforce PR Constraints
+Pick and enforce:
+- **Max files changed:**
