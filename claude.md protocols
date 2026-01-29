@@ -1,0 +1,859 @@
+# CLAUDE.md — Large Codebase Navigation Protocol (v3)
+
+## Core Principle
+
+**Indices are query interfaces, not context payloads.** Never load an index into context wholesale. Grep into it, extract relevant lines, discard the rest. Progressive disclosure: start narrow, expand only when needed.
+
+---
+
+# Part I: Setup & Configuration
+
+## 1. Exclusion Rules (Internalize First)
+
+Before any exploration, these paths are **noise—never traverse**:
+
+```
+# Universal exclusions
+node_modules/
+vendor/
+__pycache__/
+.git/
+dist/
+build/
+coverage/
+target/
+.venv/
+venv/
+*.min.js
+*.min.css
+*.map
+*.pyc
+*.pyo
+*.lock
+*.log
+package-lock.json
+yarn.lock
+poetry.lock
+Cargo.lock
+
+# Project-specific exclusions (customize)
+# [ADD YOUR EXCLUSIONS HERE]
+```
+
+**Action**: Before your first navigation, mentally load this list. Never `find` or `rg` without excluding these.
+
+---
+
+## 2. Directory Structure for Index Files
+
+Create this structure at project root:
+
+```
+.ai/
+├── index/
+│   ├── overview.md                    # Architecture map (~50 lines, always loaded)
+│   ├── folder_index__src_api.md       # Per-folder file listings
+│   ├── folder_index__src_core.md
+│   ├── folder_index__src_infra.md
+│   ├── detailed_index__src_core.md    # Classes/functions (generated on-demand)
+│   └── symbols__ctags.txt             # Machine-generated symbol index
+├── tasks/
+│   └── task_nav__<task_name>.md       # Per-task relevant files
+└── logs/
+    └── index_updates.md               # Changelog for index maintenance
+```
+
+**Hard constraint**: No single index file exceeds 10-20k tokens. If it would, split by subdirectory.
+
+---
+
+## 3. Project-Specific Configuration
+
+Fill in before using this protocol:
+
+```markdown
+### Stack
+- Language: _______________
+- Framework: _______________
+- Database: _______________
+- Build tool: _______________
+- Test framework: _______________
+- Package manager: _______________
+
+### Conventions
+- Naming: [e.g., snake_case functions, PascalCase classes]
+- Imports: [e.g., absolute imports only]
+- Error handling: [e.g., custom exceptions in src/errors/]
+- Logging: [e.g., structlog, JSON format]
+
+### Key External Services
+- _______________ — [purpose]
+- _______________ — [purpose]
+```
+
+---
+
+# Part II: Index Generation (Step-by-Step)
+
+## 4. Step 1: Create `overview.md` (Do This First)
+
+**Goal**: Human-readable map of top 20-50 directories. This is the **only** index loaded at session start.
+
+**Prompt to generate**:
+
+```
+Create `.ai/index/overview.md` that lists the top-level directories/modules 
+(max ~50 entries). For each, provide:
+- Purpose (1 sentence)
+- Key entrypoints (filenames)  
+- Common tasks: where to add features, where tests live
+
+Keep it under 50 lines total. Orient toward navigation, not documentation.
+```
+
+**Template**:
+
+```markdown
+# Architecture Overview
+
+## System Boundaries
+
+| Directory | Purpose | Key Entrypoints | Tests |
+|-----------|---------|-----------------|-------|
+| `src/api/` | REST endpoints, request validation | `routes.py`, `middleware.py` | `tests/api/` |
+| `src/core/` | Business logic, no I/O | `services/`, `domain/` | `tests/core/` |
+| `src/infra/` | DB, external services | `clients/`, `repositories/` | `tests/infra/` |
+| `src/shared/` | Types, utilities | `types.py`, `utils.py` | — |
+
+## Dependency Direction
+
+    infrastructure → application → domain → (nothing)
+
+Dependencies flow **inward**. Domain has no imports from other layers.
+
+## Data Flow
+
+    Request → api/ → core/ → infra/ → Response
+
+## Critical Invariants
+
+- `core/` never imports from `infra/` (dependency inversion)
+- All external calls wrapped in `src/infra/clients/`
+- No business logic in `api/` layer
+
+## Entry Points
+
+- `src/main.py` — Application bootstrap
+- `src/api/routes.py` — Route registration
+- `scripts/migrate.py` — Database migrations
+```
+
+---
+
+## 5. Step 2: Create Folder-Level Indices (On-Demand)
+
+**Goal**: For each important subsystem, list files + 1-2 line description. Generate **only for the subsystem you're working in**.
+
+**Prompt template** (repeat per folder):
+
+```
+For every file under `src/core/`, write 1-2 lines describing what it does.
+Save to: `.ai/index/folder_index__src_core.md`
+
+Exclude: __pycache__, *.pyc, test files (those go in a separate index)
+Keep it under 2000 lines. If larger, split by subfolder.
+Format:
+
+## src/core/services/
+- `payment_service.py` — Orchestrates payment flow, validates amounts, calls processor
+- `user_service.py` — User CRUD operations, profile management
+
+## src/core/domain/
+- `payment.py` — Payment aggregate root, contains PaymentStatus enum
+- ...
+```
+
+**When to generate**: Only when you need to explore that subsystem. Do not pre-generate for entire repo.
+
+**Staleness warning**: Add this line at the top of every folder index:
+
+```markdown
+> ⚠️ This index may be stale. Use it to locate candidates, then verify by reading actual files.
+```
+
+---
+
+## 6. Step 3: Create Detailed Index (Only When Needed)
+
+**Goal**: Classes, functions, signatures for a specific folder. Most expensive index—generate sparingly.
+
+**Prompt template**:
+
+```
+For files under `src/core/domain/` only, create `.ai/index/detailed_index__src_core_domain.md`:
+
+For each file:
+- File name
+- Classes + 1-line purpose
+- Public functions + signature + 1-line summary
+- Prefer quoting existing docstrings over inferring
+
+Keep compact. Target: <100 lines per file's entry.
+```
+
+**Format**:
+
+```markdown
+## src/core/domain/payment.py
+
+### Classes
+- `Payment` — Aggregate root for payment transactions
+- `PaymentStatus(Enum)` — PENDING, COMPLETED, FAILED, REFUNDED
+
+### Functions
+- `create_payment(amount: Decimal, currency: str, user_id: UUID) -> Payment`
+  Creates new payment in PENDING status, validates amount > 0
+- `complete_payment(payment: Payment, transaction_id: str) -> Payment`
+  Transitions to COMPLETED, records external transaction ID
+```
+
+---
+
+## 7. Step 4: Generate Symbol Index via ctags (Machine-Generated)
+
+**Goal**: Fast symbol lookup without LLM token cost. Use tools for **symbols**, LLM for **meaning**.
+
+**Commands** (adjust for your language):
+
+```bash
+# Python
+ctags -R --languages=python --exclude=.venv --exclude=__pycache__ \
+  --fields=+n -f .ai/index/symbols__ctags.txt .
+
+# JavaScript/TypeScript  
+ctags -R --languages=javascript,typescript --exclude=node_modules \
+  --fields=+n -f .ai/index/symbols__ctags.txt .
+
+# Multi-language
+ctags -R --exclude=node_modules --exclude=vendor --exclude=.git \
+  --fields=+n -f .ai/index/symbols__ctags.txt .
+```
+
+**Usage**: Query with grep, never load entirely:
+
+```bash
+# Find where function is defined
+grep "^process_payment" .ai/index/symbols__ctags.txt
+
+# Find all classes
+grep -E "^[A-Z][a-zA-Z]+.*class" .ai/index/symbols__ctags.txt
+```
+
+---
+
+## 8. Step 5: Create Per-Task Navigation Files
+
+**Goal**: Replace global index loading with task-specific, curated file lists. **This is the highest-leverage practice.**
+
+**Prompt template**:
+
+```
+Create `.ai/tasks/task_nav__add_refund_feature.md` that includes:
+
+1. The 10-30 most relevant files for implementing refund functionality
+2. Why each file is relevant (1 line)
+3. The likely entrypoint for changes
+4. Any risky cross-boundary dependencies
+5. Related tests to update
+
+Do NOT summarize the entire codebase. Be selective and precise.
+```
+
+**Format**:
+
+```markdown
+# Task: Add Refund Feature
+
+## Entrypoint
+Start at: `src/api/routes/payments.py` — add POST /payments/{id}/refund endpoint
+
+## Relevant Files
+
+### Must Modify
+| File | Why | Risk |
+|------|-----|------|
+| `src/api/routes/payments.py` | Add refund endpoint | Low |
+| `src/core/services/payment_service.py` | Add refund_payment() method | Medium |
+| `src/core/domain/payment.py` | Add REFUNDED status, refund validation | Medium |
+| `src/infra/clients/stripe.py` | Call Stripe refund API | High—external |
+
+### Must Read (Context)
+| File | Why |
+|------|-----|
+| `src/core/domain/payment.py` | Understand Payment aggregate |
+| `src/infra/repositories/payment_repo.py` | Understand persistence |
+
+### Tests to Update
+- `tests/api/test_payments.py` — Add refund endpoint tests
+- `tests/core/test_payment_service.py` — Add refund service tests
+- `tests/infra/test_stripe_client.py` — Mock Stripe refund
+
+## Cross-Boundary Dependencies
+- Refund requires `infra/` call from `core/` — use repository pattern
+- Stripe client must handle idempotency keys
+
+## Out of Scope
+- `src/api/routes/users.py` — unrelated
+- `src/core/services/notification_service.py` — notify later, not MVP
+```
+
+---
+
+# Part III: Navigation Protocol
+
+## 9. Navigation Decision Tree
+
+Execute in order, stopping when target is found:
+
+```
+START: Need to find something
+          │
+          ▼
+   ┌──────────────────────┐
+   │ Do I have a          │───YES───▶ Open `.ai/tasks/task_nav__*.md`
+   │ task nav file?       │           (skip all other indexing)
+   └──────────┬───────────┘
+              │ NO
+              ▼
+   ┌──────────────────────┐
+   │ Do I know the        │───YES───▶ Direct file access
+   │ exact file path?     │
+   └──────────┬───────────┘
+              │ NO
+              ▼
+   ┌──────────────────────┐
+   │ Do I know a symbol   │───YES───▶ grep symbols__ctags.txt
+   │ name?                │           or: rg -l "symbol" --type py
+   └──────────┬───────────┘
+              │ NO
+              ▼
+   ┌──────────────────────┐
+   │ Do I know the        │───YES───▶ Check overview.md → identify folder
+   │ feature/domain?      │           → open folder_index__<folder>.md
+   └──────────┬───────────┘           → grep/find within that folder only
+              │ NO
+              ▼
+   ┌──────────────────────┐
+   │ Explore with         │───────────▶ Use subagent for discovery
+   │ bounded search       │             Return summary to main context
+   └──────────────────────┘
+```
+
+---
+
+## 10. Dependency Direction Rule
+
+**If the codebase has layered architecture, dependencies flow inward:**
+
+```
+    infrastructure → application → domain → (nothing)
+```
+
+**Navigation implications:**
+
+1. When tracing code, follow imports **toward** domain (the leaves), not away
+2. Domain files have no outbound dependencies—they're termination points
+3. If you find yourself in a cycle, **stop**—the architecture is broken or you're misreading
+
+**Cycle detection heuristic:**
+
+If you visit the same file twice during a single navigation:
+1. Note the cycle path
+2. Flag it as architectural issue
+3. Ask for clarification on which direction to prioritize
+4. **Do not** attempt to "understand the whole cycle"—it's unbounded
+
+---
+
+## 11. Context Budget Heuristics
+
+Budgets scale with **semantic density**, not line count:
+
+| Content Type | Max Lines | Rationale |
+|--------------|-----------|-----------|
+| Config/YAML/JSON | 200 | Low density, scan quickly |
+| Boilerplate (routes, schemas) | 100 | Patterns repeat |
+| Business logic | 50 | High density, read carefully |
+| Algorithmic code | 30 | Very high density |
+
+**Hard rule**: If reading >100 lines of a single file, you're probably in the wrong file. Refine search.
+
+**Partial read commands:**
+
+```bash
+# First 50 lines (imports, class definition)
+head -50 file.py
+
+# Specific line range
+sed -n '120,180p' file.py
+
+# Grep with context
+rg -B5 -A5 "def process_payment" src/
+
+# Last 30 lines (often where main logic lives)
+tail -30 file.py
+```
+
+---
+
+## 12. Index Query Pattern (Never Load, Always Query)
+
+**Wrong** (loads entire index into context):
+```
+Read .ai/index/folder_index__src_core.md
+```
+
+**Right** (queries index, extracts only relevant lines):
+```bash
+# Find files related to "payment"
+rg -i "payment" .ai/index/folder_index__src_core.md
+
+# Find files related to "validation"  
+rg -i "valid" .ai/index/folder_index__src_core.md | head -10
+```
+
+**The pattern:**
+1. Use `overview.md` to identify the right folder
+2. Query (don't load) the folder index to find candidate files
+3. Open 2-5 actual files to verify
+4. Never trust index content as ground truth
+
+---
+
+# Part IV: Subagent Protocol
+
+## 13. When to Delegate
+
+| Task Type | Main Agent | Subagent |
+|-----------|:----------:|:--------:|
+| Architecture decisions | ✓ | |
+| Cross-module refactoring | ✓ | |
+| Final code review | ✓ | |
+| "Find all usages of X" | | ✓ |
+| "Explore folder structure" | | ✓ |
+| Index generation | | ✓ |
+| Running tests | | ✓ |
+| Verification passes | | ✓ |
+
+**Key principle**: Subagents destroy their context after completion. Main agent receives only structured summaries.
+
+---
+
+## 14. Subagent Task Contract
+
+```markdown
+## Subagent Task: [Name]
+
+### Objective
+[Specific, bounded goal—one sentence]
+
+### Scope  
+Allowed paths: [explicit list]
+Forbidden paths: [explicit list]
+
+### Deliverable Format
+- Status: FOUND | NOT_FOUND | PARTIAL | UNCERTAIN
+- Summary: <20 lines
+- File list: paths + line ranges
+- Code excerpts: <15 lines each, with file:line attribution
+- Uncertainties: [list anything unclear]
+
+### Constraints
+- No modifications without explicit approval
+- Do not explore outside allowed paths
+- Return uncertainty flags, not guesses
+- If task would exceed 50 tool calls, stop and report
+```
+
+---
+
+## 15. Subagent Response Template
+
+```markdown
+## Result: [Task Name]
+
+**Status**: FOUND
+
+**Files**:
+- `src/core/services/payment_service.py` (lines 45-89) — refund logic
+- `src/core/domain/payment.py` (lines 12-34) — Payment aggregate
+
+**Summary**:
+Refund logic lives in PaymentService.refund_payment(). It validates the payment 
+is in COMPLETED status, calls the Stripe client, then updates status to REFUNDED.
+The Payment aggregate enforces the state transition rules.
+
+**Excerpt** (if needed):
+```python
+# src/core/services/payment_service.py:67-74
+def refund_payment(self, payment_id: UUID) -> Payment:
+    payment = self.repo.get(payment_id)
+    if payment.status != PaymentStatus.COMPLETED:
+        raise InvalidRefundError(f"Cannot refund {payment.status}")
+    self.stripe.refund(payment.transaction_id)
+    payment.status = PaymentStatus.REFUNDED
+    return self.repo.save(payment)
+```
+
+**Uncertainties**:
+- Unclear if partial refunds are supported
+- No test coverage found for refund edge cases
+```
+
+---
+
+# Part V: Modification & Verification
+
+## 16. Pre-Modification Checklist
+
+Before any code change:
+
+- [ ] Change stays within one module boundary
+- [ ] If crossing boundaries: contract change documented
+- [ ] Identified all files that need modification
+- [ ] Identified all tests that need updates
+- [ ] Not modifying protected paths (see §17)
+
+---
+
+## 17. Protected Paths (Require Explicit Approval)
+
+```
+# Security-critical
+src/auth/
+src/crypto/
+**/secrets.*
+**/*_secret*
+
+# Infrastructure  
+infra/
+terraform/
+docker-compose*.yml
+*.tf
+Dockerfile*
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+Jenkinsfile
+
+# Configuration
+*.env*
+config/production.*
+```
+
+---
+
+## 18. Post-Modification Verification
+
+**Every "done" claim must include:**
+
+1. **Command run**: Exact command executed
+2. **Output shown**: Actual output (or summary if verbose)
+3. **Artifacts changed**: List of modified files
+4. **Test evidence**: Test command + pass/fail result
+
+**Template:**
+
+```markdown
+## Verification
+
+### Tests
+```bash
+$ pytest tests/core/test_payment_service.py -v
+========================= test session starts ==========================
+tests/core/test_payment_service.py::test_refund_completed_payment PASSED
+tests/core/test_payment_service.py::test_refund_pending_fails PASSED  
+tests/core/test_payment_service.py::test_refund_already_refunded_fails PASSED
+========================= 3 passed in 0.45s ============================
+```
+
+### Type Check
+```bash
+$ mypy src/core/services/payment_service.py
+Success: no issues found in 1 source file
+```
+
+### Files Modified
+- `src/core/services/payment_service.py` — added refund_payment()
+- `src/core/domain/payment.py` — added REFUNDED status
+- `tests/core/test_payment_service.py` — added 3 refund tests
+```
+
+**Hard rule**: Never claim "tests passed" without showing the command and output.
+
+---
+
+# Part VI: Maintenance
+
+## 19. Index Update Policy
+
+Indices rot. Use explicit update triggers.
+
+### When to Update
+
+| Event | Action |
+|-------|--------|
+| PR adds new module/directory | Update `overview.md` |
+| PR changes public API | Update relevant `folder_index__*.md` |
+| PR adds new entrypoint | Update `overview.md` entrypoints |
+| Weekly maintenance | Regenerate `symbols__ctags.txt` |
+
+### Update Log
+
+Append to `.ai/logs/index_updates.md`:
+
+```markdown
+## 2025-01-15
+- Updated `folder_index__src_core.md`: added refund_service.py
+- Updated `overview.md`: added refund feature to core/ description
+- Regenerated `symbols__ctags.txt`
+```
+
+### PR Checklist Item
+
+Add to your PR template:
+
+```markdown
+- [ ] Updated `.ai/index/*` for changed modules (if structural/public API changed)
+```
+
+---
+
+## 20. Staged Indexing for Huge Repos
+
+When full indexing is too expensive:
+
+**Phase 1** (Day 1):
+1. Create `overview.md` only
+2. Work with grep/find + overview guidance
+
+**Phase 2** (As needed):
+1. Generate `folder_index__*.md` for the 2-3 folders you're actively working in
+2. Leave other folders unindexed
+
+**Phase 3** (Per task):
+1. Generate `task_nav__*.md` for specific features
+2. Discard after task completion (or archive in `.ai/tasks/archive/`)
+
+**Never**: Generate detailed indices for entire repo upfront.
+
+---
+
+# Part VII: Anti-Patterns & Failure Modes
+
+## 21. What NOT to Do
+
+| Anti-Pattern | Why It Fails | Instead |
+|--------------|--------------|---------|
+| Single 90k-token `general_index.md` | Pollutes context, exceeds limits | Split by directory, query don't load |
+| Loading entire index at session start | Wastes budget on irrelevant content | Load only `overview.md`, query rest |
+| Trusting index as ground truth | Indices go stale | Always verify in actual files |
+| Pre-generating all detailed indices | O(n) cost for O(1) queries | Generate on-demand per task |
+| Subagent declares ✅ without evidence | False confidence | Require command + output |
+| Exploring cycles indefinitely | Unbounded token consumption | Detect cycle, stop, flag |
+| Reading 500-line files entirely | Context waste | Partial reads, line ranges |
+| Generating index with Opus | Slow, expensive, unnecessary | Use Sonnet/Haiku for indexing |
+
+---
+
+## 22. Red Flags During Navigation
+
+If you observe these, stop and reassess:
+
+- **Visiting same file twice** → Cycle detected, architectural issue
+- **Reading >100 lines of one file** → Wrong file or wrong approach
+- **Index disagrees with actual file** → Index is stale, trust the file
+- **Subagent making >50 tool calls** → Task too broad, decompose further
+- **grep returns >20 hits** → Query too broad, add constraints
+- **Can't find expected symbol** → Check exclusions, might be in vendor/generated code
+
+---
+
+# Part VIII: Session Workflow
+
+## 23. Session Start Checklist
+
+```markdown
+- [ ] Read `CLAUDE.md` (this file)
+- [ ] Read `.ai/index/overview.md` (~50 lines)
+- [ ] Identify target module for current task
+- [ ] Check for existing `.ai/tasks/task_nav__*.md`
+- [ ] **STOP** — Do not read more until navigation requires it
+```
+
+---
+
+## 24. During Session: Checkpoint Template
+
+Maintain running state:
+
+```markdown
+## Checkpoint
+
+**Task**: [Current objective]
+**Phase**: [Discovery | Implementation | Verification]
+
+**Files touched**:
+- `path/to/file.py` — [what changed]
+
+**Key finding**: [One sentence]
+
+**Next step**: [Specific action]
+
+**Blockers**: [If any]
+
+**Context budget used**: [Estimate: low/medium/high]
+```
+
+---
+
+## 25. Session End Checklist
+
+```markdown
+- [ ] All modifications tested (command + output shown)
+- [ ] Type checks pass (if applicable)
+- [ ] Lint checks pass (if applicable)  
+- [ ] Updated `.ai/index/overview.md` if structure changed
+- [ ] Updated relevant `folder_index__*.md` if public API changed
+- [ ] Logged updates to `.ai/logs/index_updates.md`
+- [ ] Archived or deleted task-specific nav files
+```
+
+---
+
+# Appendix A: Quick Reference Commands
+
+```bash
+# === Navigation ===
+# Find files by name pattern
+find . -name "*payment*" -type f -not -path "*/node_modules/*"
+
+# Find symbol definition
+rg -n "def refund_payment|class Refund" src/
+
+# Find usages
+rg -l "refund_payment" --type py
+
+# Grep with context
+rg -B3 -A3 "PaymentStatus" src/core/
+
+# === Partial Reads ===
+head -50 file.py          # First 50 lines
+tail -30 file.py          # Last 30 lines  
+sed -n '100,150p' file.py # Lines 100-150
+
+# === Index Queries (never load, always query) ===
+rg -i "payment" .ai/index/folder_index__src_core.md
+rg "^process" .ai/index/symbols__ctags.txt
+
+# === Verification ===
+pytest path/to/tests/ -v              # Run tests
+mypy src/module/                       # Type check
+ruff check src/module/                 # Lint
+```
+
+---
+
+# Appendix B: Complexity Analysis
+
+**Naive approach** (load everything):
+- Index generation: $O(n)$ files
+- Index loading: $O(n)$ tokens per session
+- Per-query: $O(1)$ lookup, but already paid $O(n)$
+- **Total**: $O(n)$ tokens minimum, regardless of task size
+
+**Progressive disclosure** (this protocol):
+- Index generation: $O(k)$ for $k$ files in active subtree
+- Index loading: $O(1)$ — only `overview.md` loaded
+- Per-query: $O(\log n)$ grep + $O(k)$ for $k$ relevant files
+- **Total**: $O(\log n + k)$ where $k \ll n$
+
+**Improvement factor**: For $n = 10,000$ files and $k = 20$ relevant files:
+- Naive: 10,000 tokens (index) + query
+- Progressive: 50 tokens (overview) + 20 files = ~500 tokens
+- **~20x reduction**
+
+The key insight: **defer work until you know it's needed**.
+
+---
+
+# Appendix C: File Templates
+
+## C.1: overview.md template
+
+```markdown
+# Architecture Overview
+
+## System Boundaries
+| Directory | Purpose | Entrypoints | Tests |
+|-----------|---------|-------------|-------|
+| `src/api/` | [purpose] | [files] | `tests/api/` |
+| `src/core/` | [purpose] | [files] | `tests/core/` |
+
+## Dependency Direction
+    [layer] → [layer] → [layer] → (nothing)
+
+## Data Flow
+    [entry] → [processing] → [output]
+
+## Critical Invariants
+- [invariant 1]
+- [invariant 2]
+
+## Entry Points
+- `[file]` — [purpose]
+```
+
+## C.2: folder_index template
+
+```markdown
+# Folder Index: src/core/
+
+> ⚠️ This index may be stale. Verify by reading actual files.
+
+## src/core/services/
+- `payment_service.py` — [description]
+- `user_service.py` — [description]
+
+## src/core/domain/
+- `payment.py` — [description]
+```
+
+## C.3: task_nav template
+
+```markdown
+# Task: [Name]
+
+## Entrypoint
+Start at: `[file]` — [why]
+
+## Must Modify
+| File | Why | Risk |
+|------|-----|------|
+
+## Must Read
+| File | Why |
+|------|-----|
+
+## Tests to Update
+- [test file] — [what to add]
+
+## Cross-Boundary Dependencies
+- [dependency description]
+```
+
+---
+
+*v3 — Synthesized from: Reddit community experience, lazy generation principles, dependency direction rules, per-task navigation, subagent isolation, verification requirements.*
