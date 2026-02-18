@@ -1,0 +1,932 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{longtable}
+
+\geometry{margin=1in}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+
+% Custom colors
+\definecolor{formulabg}{RGB}{240,245,255}
+\definecolor{longbg}{RGB}{230,255,230}
+\definecolor{shortbg}{RGB}{255,230,230}
+\definecolor{warnbg}{RGB}{255,250,220}
+\definecolor{examplebg}{RGB}{245,245,245}
+
+% Custom boxes
+\newtcolorbox{formulabox}{colback=formulabg,colframe=blue!40,boxrule=0.5pt,arc=3pt}
+\newtcolorbox{longbox}{colback=longbg,colframe=green!50!black,boxrule=0.5pt,arc=3pt,title=Long Position}
+\newtcolorbox{shortbox}{colback=shortbg,colframe=red!50!black,boxrule=0.5pt,arc=3pt,title=Short Position}
+\newtcolorbox{warnbox}{colback=warnbg,colframe=orange!70,boxrule=0.5pt,arc=3pt,title=Key Insight}
+\newtcolorbox{examplebox}{colback=examplebg,colframe=black!30,boxrule=0.5pt,arc=3pt,title=Numerical Example}
+
+% Theorem environments
+\newtheorem{definition}{Definition}[section]
+\newtheorem{proposition}{Proposition}[section]
+
+% Header
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Asymmetric Carry Strategy}
+\lhead{Corporate Bonds PRD}
+\rfoot{Page \thepage}
+\setlength{\headheight}{14pt}
+
+\title{\textbf{Product Requirements Document}\\[0.5cm]
+\LARGE Corporate Bond Carry Strategy\\[0.2cm]
+\large Cash Flow Based Formulation\\[0.3cm]
+\normalsize With Asymmetric Long/Short Financing}
+\author{Quantitative Research}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\newpage
+
+\tableofcontents
+\newpage
+
+%=============================================================================
+\section{Executive Summary}
+%=============================================================================
+
+This document specifies a corporate bond carry strategy using explicit cash flow calculations. The strategy correctly accounts for the \textbf{asymmetric financing costs} between long and short positions:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Long positions}: Buy bonds by borrowing cash, earn coupons, pay financing
+    \item \textbf{Short positions}: Borrow bonds via repo, sell them, earn repo interest, pay coupons and borrow fees
+\end{itemize}
+
+All formulas are expressed in terms of observable market variables: notional, price, coupon, duration, repo rates, and borrow fees.
+
+%=============================================================================
+\section{Variable Definitions}
+%=============================================================================
+
+\subsection{Bond-Specific Variables}
+
+\begin{table}[H]
+\centering
+\caption{Bond-Specific Variables}
+\begin{tabular}{@{}clp{5.5cm}l@{}}
+\toprule
+\textbf{Symbol} & \textbf{Name} & \textbf{Definition} & \textbf{Units} \\
+\midrule
+$N_i$ & Notional & Face value / par amount of position & \$ \\
+$P_i$ & Clean Price & Market price excluding accrued interest & \% of par \\
+$\text{AI}_i$ & Accrued Interest & Interest accumulated since last coupon & \% of par \\
+$P_i^{\text{dirty}}$ & Dirty Price & $P_i + \text{AI}_i$ (full price) & \% of par \\
+$c_i$ & Coupon Rate & Annual coupon as percentage of par & \% \\
+$f_i$ & Coupon Frequency & Number of coupon payments per year & per year \\
+$\tau_i$ & Time to Maturity & Years until bond matures & years \\
+$D_i$ & Modified Duration & Price sensitivity to yield changes & years \\
+$\sigma_i$ & Return Volatility & Annualized std dev of total returns & \% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Market Rate Variables}
+
+\begin{table}[H]
+\centering
+\caption{Market Rate Variables}
+\begin{tabular}{@{}clp{5.5cm}l@{}}
+\toprule
+\textbf{Symbol} & \textbf{Name} & \textbf{Definition} & \textbf{Units} \\
+\midrule
+$r^{\text{fund}}$ & Funding Rate & Cost of borrowing cash to finance longs & \% ann. \\
+$r_i^{\text{repo}}$ & Repo Rate & Interest earned on collateral when borrowing bond $i$ & \% ann. \\
+$\phi_i$ & Borrow Fee & Securities lending fee to borrow bond $i$ & \% ann. \\
+$Y_{t,\tau}$ & Curve Yield & Yield on credit curve at tenor $\tau$ & \% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Derived Variables}
+
+\begin{table}[H]
+\centering
+\caption{Derived Variables}
+\begin{tabular}{@{}clp{5.5cm}l@{}}
+\toprule
+\textbf{Symbol} & \textbf{Name} & \textbf{Definition} & \textbf{Units} \\
+\midrule
+$\text{Roll}_i$ & Rolldown & $Y_{t,\tau_i} - Y_{t,\tau_i - 1}$ & \% \\
+$\text{MV}_i$ & Market Value & $N_i \times P_i^{\text{dirty}} / 100$ & \$ \\
+$\Delta t$ & Holding Period & Time between rebalances & days \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Day Count Convention}
+
+All calculations use \textbf{Actual/360} for money market rates (repo, funding) and \textbf{30/360} or \textbf{Actual/Actual} for bond accruals depending on the bond. For simplicity, we use 360-day year throughout:
+
+\begin{equation}
+\text{Period fraction} = \frac{\Delta t}{360}
+\end{equation}
+
+%=============================================================================
+\section{Long Position: Cash Flow Analysis}
+%=============================================================================
+
+\subsection{Transaction Mechanics}
+
+When you \textbf{buy} $N_i$ notional of bond $i$:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Day 0}: Pay $\text{MV}_i = N_i \times P_i^{\text{dirty}} / 100$ to purchase the bond
+    \item \textbf{Day 0}: Borrow $\text{MV}_i$ from your funding source at rate $r^{\text{fund}}$
+    \item \textbf{During period}: Accrue coupon income
+    \item \textbf{If coupon date}: Receive coupon payment $N_i \times c_i / f_i$
+    \item \textbf{Day $\Delta t$}: Bond price changes due to rolldown (and spread/rate moves)
+\end{enumerate}
+
+\subsection{Cash Flow Components}
+
+\begin{longbox}
+\textbf{Component 1: Financing Cost}
+
+You borrow the purchase price at your funding rate:
+\begin{equation}
+\text{Financing Cost} = N_i \times \frac{P_i^{\text{dirty}}}{100} \times r^{\text{fund}} \times \frac{\Delta t}{360}
+\end{equation}
+This is a \textbf{cash outflow} (negative contribution to P\&L).
+\end{longbox}
+
+\begin{longbox}
+\textbf{Component 2: Coupon Accrual}
+
+You earn coupon income pro-rata over the holding period:
+\begin{equation}
+\text{Coupon Accrual} = N_i \times c_i \times \frac{\Delta t}{360}
+\end{equation}
+This is a \textbf{cash inflow} (positive contribution to P\&L).
+
+Note: This represents the economic accrual. Actual coupon payment occurs on coupon dates.
+\end{longbox}
+
+\begin{longbox}
+\textbf{Component 3: Rolldown P\&L}
+
+If the credit curve is unchanged, the bond ``rolls down'' the curve as time passes. For an upward-sloping curve, the bond's yield falls and price rises:
+\begin{equation}
+\text{Rolldown P\&L} = N_i \times \frac{P_i}{100} \times D_i \times \text{Roll}_i
+\end{equation}
+where:
+\begin{equation}
+\text{Roll}_i = Y_{t,\tau_i} - Y_{t,\tau_i - \Delta\tau}
+\end{equation}
+and $\Delta\tau$ is the rolldown horizon (typically 1 year for annualized calculations).
+
+For \textbf{upward-sloping curves}: $\text{Roll}_i > 0$, so rolldown P\&L is \textbf{positive}.
+\end{longbox}
+
+\subsection{Total Long Carry (Cash Terms)}
+
+\begin{definition}[Long Carry - Cash Terms]
+\begin{formulabox}
+\begin{equation}
+\text{Carry}_i^{\text{long}} = \underbrace{N_i \times c_i \times \frac{\Delta t}{360}}_{\text{Coupon Accrual}} - \underbrace{N_i \times \frac{P_i^{\text{dirty}}}{100} \times r^{\text{fund}} \times \frac{\Delta t}{360}}_{\text{Financing Cost}} + \underbrace{N_i \times \frac{P_i}{100} \times D_i \times \text{Roll}_i}_{\text{Rolldown P\&L}}
+\label{eq:long_carry_cash}
+\end{equation}
+\end{formulabox}
+\end{definition}
+
+\subsection{Long Carry as Percentage Return}
+
+Dividing by market value $\text{MV}_i = N_i \times P_i^{\text{dirty}} / 100$:
+
+\begin{definition}[Long Carry - Percentage Terms]
+\begin{formulabox}
+\begin{equation}
+C_i^{\text{long}} = \underbrace{\frac{c_i}{P_i^{\text{dirty}} / 100} \times \frac{\Delta t}{360}}_{\text{Current Yield} \times \text{period}} - \underbrace{r^{\text{fund}} \times \frac{\Delta t}{360}}_{\text{Funding Cost}} + \underbrace{\frac{P_i}{P_i^{\text{dirty}}} \times D_i \times \text{Roll}_i}_{\text{Rolldown Return}}
+\label{eq:long_carry_pct}
+\end{equation}
+\end{formulabox}
+\end{definition}
+
+\subsection{Annualized Long Carry}
+
+Multiplying by $360 / \Delta t$:
+
+\begin{definition}[Long Carry - Annualized]
+\begin{formulabox}
+\begin{equation}
+C_i^{\text{long, ann}} = \underbrace{\frac{c_i}{P_i^{\text{dirty}} / 100}}_{\text{Current Yield}} - \underbrace{r^{\text{fund}}}_{\text{Funding Rate}} + \underbrace{\frac{P_i}{P_i^{\text{dirty}}} \times D_i \times \text{Roll}_i^{\text{ann}}}_{\text{Annualized Rolldown}}
+\label{eq:long_carry_ann}
+\end{equation}
+\end{formulabox}
+where $\text{Roll}_i^{\text{ann}}$ is the annualized rolldown (typically $Y_{\tau} - Y_{\tau - 1Y}$).
+\end{definition}
+
+%=============================================================================
+\section{Short Position: Cash Flow Analysis}
+%=============================================================================
+
+\subsection{Transaction Mechanics}
+
+When you \textbf{short} $N_i$ notional of bond $i$:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Day 0}: Borrow the bond via reverse repo or securities lending
+    \item \textbf{Day 0}: Sell the borrowed bond, receive $\text{MV}_i = N_i \times P_i^{\text{dirty}} / 100$
+    \item \textbf{Day 0}: Post cash proceeds as collateral with the bond lender
+    \item \textbf{During period}: Earn repo rate on posted collateral
+    \item \textbf{During period}: Owe coupon accrual to bond lender (``manufactured dividend'')
+    \item \textbf{During period}: Pay securities lending fee
+    \item \textbf{Day $\Delta t$}: Bond price changes due to rolldown (hurts you---you're short)
+\end{enumerate}
+
+\subsection{Cash Flow Components}
+
+\begin{shortbox}
+\textbf{Component 1: Repo Interest Earned}
+
+You earn interest on the cash collateral posted with the bond lender:
+\begin{equation}
+\text{Repo Interest} = N_i \times \frac{P_i^{\text{dirty}}}{100} \times r_i^{\text{repo}} \times \frac{\Delta t}{360}
+\end{equation}
+This is a \textbf{cash inflow} (positive contribution to P\&L).
+\end{shortbox}
+
+\begin{shortbox}
+\textbf{Component 2: Coupon Owed (Manufactured Dividend)}
+
+You owe the coupon to the bond lender---they should receive what they would have earned:
+\begin{equation}
+\text{Coupon Owed} = N_i \times c_i \times \frac{\Delta t}{360}
+\end{equation}
+This is a \textbf{cash outflow} (negative contribution to P\&L).
+\end{shortbox}
+
+\begin{shortbox}
+\textbf{Component 3: Securities Lending Fee}
+
+You pay a fee to borrow the bond:
+\begin{equation}
+\text{Borrow Fee} = N_i \times \frac{P_i^{\text{dirty}}}{100} \times \phi_i \times \frac{\Delta t}{360}
+\end{equation}
+This is a \textbf{cash outflow} (negative contribution to P\&L).
+\end{shortbox}
+
+\begin{shortbox}
+\textbf{Component 4: Rolldown P\&L (Negative for Shorts)}
+
+If the curve is unchanged, the bond price rises as it rolls down. Since you're short, this \textbf{hurts} you:
+\begin{equation}
+\text{Rolldown P\&L} = -N_i \times \frac{P_i}{100} \times D_i \times \text{Roll}_i
+\end{equation}
+For \textbf{upward-sloping curves}: $\text{Roll}_i > 0$, so rolldown P\&L is \textbf{negative} for shorts.
+\end{shortbox}
+
+\subsection{Total Short Carry (Cash Terms)}
+
+\begin{definition}[Short Carry - Cash Terms]
+\begin{formulabox}
+\begin{align}
+\text{Carry}_i^{\text{short}} = \quad & \underbrace{N_i \times \frac{P_i^{\text{dirty}}}{100} \times r_i^{\text{repo}} \times \frac{\Delta t}{360}}_{\text{Repo Interest Earned}} \nonumber \\[0.3cm]
+& - \underbrace{N_i \times c_i \times \frac{\Delta t}{360}}_{\text{Coupon Owed}} \nonumber \\[0.3cm]
+& - \underbrace{N_i \times \frac{P_i^{\text{dirty}}}{100} \times \phi_i \times \frac{\Delta t}{360}}_{\text{Borrow Fee}} \nonumber \\[0.3cm]
+& - \underbrace{N_i \times \frac{P_i}{100} \times D_i \times \text{Roll}_i}_{\text{Rolldown P\&L (negative)}}
+\label{eq:short_carry_cash}
+\end{align}
+\end{formulabox}
+\end{definition}
+
+\subsection{Short Carry as Percentage Return}
+
+Dividing by market value:
+
+\begin{definition}[Short Carry - Percentage Terms]
+\begin{formulabox}
+\begin{equation}
+C_i^{\text{short}} = \underbrace{r_i^{\text{repo}} \times \frac{\Delta t}{360}}_{\text{Repo Interest}} - \underbrace{\frac{c_i}{P_i^{\text{dirty}} / 100} \times \frac{\Delta t}{360}}_{\text{Current Yield Owed}} - \underbrace{\phi_i \times \frac{\Delta t}{360}}_{\text{Borrow Fee}} - \underbrace{\frac{P_i}{P_i^{\text{dirty}}} \times D_i \times \text{Roll}_i}_{\text{Rolldown}}
+\label{eq:short_carry_pct}
+\end{equation}
+\end{formulabox}
+\end{definition}
+
+\subsection{Annualized Short Carry}
+
+\begin{definition}[Short Carry - Annualized]
+\begin{formulabox}
+\begin{equation}
+C_i^{\text{short, ann}} = \underbrace{r_i^{\text{repo}}}_{\text{Repo Rate}} - \underbrace{\frac{c_i}{P_i^{\text{dirty}} / 100}}_{\text{Current Yield}} - \underbrace{\phi_i}_{\text{Borrow Fee}} - \underbrace{\frac{P_i}{P_i^{\text{dirty}}} \times D_i \times \text{Roll}_i^{\text{ann}}}_{\text{Annualized Rolldown}}
+\label{eq:short_carry_ann}
+\end{equation}
+\end{formulabox}
+\end{definition}
+
+%=============================================================================
+\section{The Asymmetry Problem}
+%=============================================================================
+
+\subsection{Why Short Carry $\neq$ Negative of Long Carry}
+
+Comparing the two formulas:
+
+\begin{align}
+C^{\text{long}} &= \frac{c}{P^{\text{dirty}}/100} - r^{\text{fund}} + \frac{P}{P^{\text{dirty}}} \times D \times \text{Roll} \\[0.3cm]
+C^{\text{short}} &= r^{\text{repo}} - \frac{c}{P^{\text{dirty}}/100} - \phi - \frac{P}{P^{\text{dirty}}} \times D \times \text{Roll}
+\end{align}
+
+If we compute $C^{\text{short}} + C^{\text{long}}$:
+
+\begin{equation}
+C^{\text{short}} + C^{\text{long}} = r^{\text{repo}} - r^{\text{fund}} - \phi
+\end{equation}
+
+\begin{warnbox}
+\textbf{The Asymmetry Term:}
+\begin{equation}
+\delta_i = r_i^{\text{repo}} - r^{\text{fund}} - \phi_i
+\end{equation}
+
+This is typically \textbf{negative} because:
+\begin{itemize}
+    \item $r^{\text{repo}} < r^{\text{fund}}$: You earn less on repo collateral than you pay to borrow cash
+    \item $\phi > 0$: Borrow fees add additional cost
+\end{itemize}
+
+\textbf{Typical values:} $\delta \approx -0.50\%$ to $-1.50\%$ for IG bonds, worse for HY.
+
+This creates a \textbf{hurdle for shorts}: The short position must overcome this friction cost to be profitable.
+\end{warnbox}
+
+\subsection{When Does Shorting Make Money?}
+
+For $C^{\text{short}} > 0$, we need:
+
+\begin{equation}
+r^{\text{repo}} - \frac{c}{P^{\text{dirty}}/100} - \phi - \frac{P}{P^{\text{dirty}}} \times D \times \text{Roll} > 0
+\end{equation}
+
+Rearranging:
+
+\begin{equation}
+\underbrace{\frac{c}{P^{\text{dirty}}/100}}_{\text{Current Yield}} + \underbrace{\frac{P}{P^{\text{dirty}}} \times D \times \text{Roll}}_{\text{Rolldown}} < \underbrace{r^{\text{repo}} - \phi}_{\text{Net Repo Income}}
+\end{equation}
+
+This requires:
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Low current yield}: High price, low coupon, or distressed pricing
+    \item \textbf{Flat or inverted credit curve}: Zero or negative rolldown
+    \item \textbf{Low borrow fee}: Liquid, easy-to-borrow bonds
+    \item \textbf{High repo rate}: Special collateral or tight markets
+\end{enumerate}
+
+\begin{warnbox}
+\textbf{Practical Implication:} Most bonds have positive carry for longs and negative carry for shorts. Only a subset of bonds---typically overvalued credits with flat curves and low borrow costs---will have positive short carry.
+\end{warnbox}
+
+%=============================================================================
+\section{Complete Numerical Example}
+%=============================================================================
+
+\begin{examplebox}
+\textbf{Bond: XYZ Corporation 5.00\% Senior Notes due 2032}
+
+\vspace{0.3cm}
+\textbf{Position:} $N = \$10,000,000$ notional
+
+\vspace{0.3cm}
+\textbf{Bond Data:}
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Clean Price $P$ & 96.00 \\
+Accrued Interest AI & 1.25 \\
+Dirty Price $P^{\text{dirty}}$ & 97.25 \\
+Coupon $c$ & 5.00\% \\
+Modified Duration $D$ & 6.5 years \\
+Time to Maturity $\tau$ & 7.5 years \\
+Volatility $\sigma$ & 9.0\% annualized \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.3cm}
+\textbf{Market Rates:}
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Funding Rate $r^{\text{fund}}$ & 4.50\% \\
+Repo Rate $r^{\text{repo}}$ & 4.25\% \\
+Borrow Fee $\phi$ & 0.40\% \\
+Curve Yield at 7.5Y $Y_{7.5Y}$ & 5.75\% \\
+Curve Yield at 6.5Y $Y_{6.5Y}$ & 5.60\% \\
+\textbf{Rolldown} $\text{Roll} = Y_{7.5Y} - Y_{6.5Y}$ & \textbf{0.15\%} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.3cm}
+\textbf{Holding Period:} $\Delta t = 30$ days
+\end{examplebox}
+
+\subsection{Long Position Cash Flows}
+
+\textbf{Market Value:}
+\begin{equation}
+\text{MV} = \$10,000,000 \times \frac{97.25}{100} = \$9,725,000
+\end{equation}
+
+\textbf{Financing Cost:}
+\begin{equation}
+= \$9,725,000 \times 4.50\% \times \frac{30}{360} = \$36,469
+\end{equation}
+
+\textbf{Coupon Accrual:}
+\begin{equation}
+= \$10,000,000 \times 5.00\% \times \frac{30}{360} = \$41,667
+\end{equation}
+
+\textbf{Rolldown P\&L:}
+\begin{equation}
+= \$10,000,000 \times \frac{96.00}{100} \times 6.5 \times 0.15\% = \$9,360
+\end{equation}
+
+\textbf{Total Long Carry (30 days):}
+\begin{equation}
+= \$41,667 - \$36,469 + \$9,360 = \mathbf{\$14,558}
+\end{equation}
+
+\textbf{Annualized:}
+\begin{equation}
+= \$14,558 \times \frac{360}{30} = \$174,696 \quad \Rightarrow \quad \frac{\$174,696}{\$9,725,000} = \mathbf{1.80\%}
+\end{equation}
+
+\subsection{Short Position Cash Flows}
+
+\textbf{Repo Interest Earned:}
+\begin{equation}
+= \$9,725,000 \times 4.25\% \times \frac{30}{360} = \$34,443
+\end{equation}
+
+\textbf{Coupon Owed:}
+\begin{equation}
+= \$10,000,000 \times 5.00\% \times \frac{30}{360} = \$41,667
+\end{equation}
+
+\textbf{Borrow Fee:}
+\begin{equation}
+= \$9,725,000 \times 0.40\% \times \frac{30}{360} = \$3,242
+\end{equation}
+
+\textbf{Rolldown P\&L (negative for short):}
+\begin{equation}
+= -\$10,000,000 \times \frac{96.00}{100} \times 6.5 \times 0.15\% = -\$9,360
+\end{equation}
+
+\textbf{Total Short Carry (30 days):}
+\begin{equation}
+= \$34,443 - \$41,667 - \$3,242 - \$9,360 = \mathbf{-\$19,826}
+\end{equation}
+
+\textbf{Annualized:}
+\begin{equation}
+= -\$19,826 \times \frac{360}{30} = -\$237,912 \quad \Rightarrow \quad \frac{-\$237,912}{\$9,725,000} = \mathbf{-2.45\%}
+\end{equation}
+
+\subsection{Signal Calculation}
+
+\begin{equation}
+S^{\text{long}} = \frac{C^{\text{long}}}{\sigma} = \frac{+1.80\%}{9.0\%} = \mathbf{+0.20}
+\end{equation}
+
+\begin{equation}
+S^{\text{short}} = \frac{C^{\text{short}}}{\sigma} = \frac{-2.45\%}{9.0\%} = \mathbf{-0.27}
+\end{equation}
+
+\subsection{Interpretation}
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Long signal = +0.20}: Attractive to buy. You earn 20 bps of carry per 1\% of volatility.
+    \item \textbf{Short signal = -0.27}: Unattractive to short. You \textbf{lose} 27 bps per 1\% of volatility.
+\end{itemize}
+
+This bond is a \textbf{long candidate} but \textbf{not} a short candidate.
+
+\subsection{Verification of Asymmetry}
+
+\begin{equation}
+\delta = r^{\text{repo}} - r^{\text{fund}} - \phi = 4.25\% - 4.50\% - 0.40\% = -0.65\%
+\end{equation}
+
+\begin{equation}
+C^{\text{short}} + C^{\text{long}} = -2.45\% + 1.80\% = -0.65\% = \delta \quad \checkmark
+\end{equation}
+
+%=============================================================================
+\section{Signal Construction}
+%=============================================================================
+
+\subsection{Long Signal}
+
+\begin{definition}[Long Signal]
+\begin{formulabox}
+\begin{equation}
+S_i^{\text{long}} = \frac{C_i^{\text{long, ann}}}{\sigma_i} = \frac{\displaystyle\frac{c_i}{P_i^{\text{dirty}}/100} - r^{\text{fund}} + \frac{P_i}{P_i^{\text{dirty}}} \times D_i \times \text{Roll}_i^{\text{ann}}}{\sigma_i}
+\end{equation}
+\end{formulabox}
+
+\textbf{Interpretation:} Expected Sharpe ratio for going long this bond, assuming unchanged spreads.
+
+Higher $S^{\text{long}}$ = more attractive long candidate.
+\end{definition}
+
+\subsection{Short Signal}
+
+\begin{definition}[Short Signal]
+\begin{formulabox}
+\begin{equation}
+S_i^{\text{short}} = \frac{C_i^{\text{short, ann}}}{\sigma_i} = \frac{\displaystyle r_i^{\text{repo}} - \frac{c_i}{P_i^{\text{dirty}}/100} - \phi_i - \frac{P_i}{P_i^{\text{dirty}}} \times D_i \times \text{Roll}_i^{\text{ann}}}{\sigma_i}
+\end{equation}
+\end{formulabox}
+
+\textbf{Interpretation:} Expected Sharpe ratio for going short this bond.
+
+Higher $S^{\text{short}}$ (less negative, or positive) = more attractive short candidate.
+\end{definition}
+
+\subsection{Signal Properties}
+
+\begin{proposition}[Signal Relationship]
+The signals satisfy:
+\begin{equation}
+S_i^{\text{short}} = -S_i^{\text{long}} + \frac{\delta_i}{\sigma_i}
+\end{equation}
+where $\delta_i = r_i^{\text{repo}} - r^{\text{fund}} - \phi_i < 0$ typically.
+
+This means the short signal distribution is shifted \textbf{down} relative to the negative of the long signal distribution.
+\end{proposition}
+
+%=============================================================================
+\section{Portfolio Selection}
+%=============================================================================
+
+\subsection{Selection Criteria}
+
+\begin{definition}[Profitable Long Universe]
+\begin{equation}
+\mathcal{U}^{\text{long}} = \left\{ i : C_i^{\text{long}} > 0 \right\}
+\end{equation}
+Only consider bonds where going long generates positive carry.
+\end{definition}
+
+\begin{definition}[Profitable Short Universe]
+\begin{equation}
+\mathcal{U}^{\text{short}} = \left\{ i : C_i^{\text{short}} > 0 \text{ and bond } i \text{ is borrowable} \right\}
+\end{equation}
+Only consider bonds where going short generates positive carry \textbf{and} the bond can actually be borrowed.
+\end{definition}
+
+\begin{warnbox}
+\textbf{Key Insight:} The profitable short universe $\mathcal{U}^{\text{short}}$ is typically \textbf{much smaller} than $\mathcal{U}^{\text{long}}$ due to the asymmetry costs. This is expected and acceptable.
+\end{warnbox}
+
+\subsection{Ranking and Selection}
+
+\begin{algorithm}[H]
+\caption{Portfolio Selection with Asymmetric Carry}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Bond universe, market data, parameters
+\State \textbf{Output:} Long portfolio $\mathcal{L}$, Short portfolio $\mathcal{S}$
+
+\State
+\State \textbf{// Step 1: Calculate Carry for All Bonds}
+\For{each bond $i$}
+    \State $\text{CY}_i \gets c_i / (P_i^{\text{dirty}} / 100)$ \Comment{Current Yield}
+    \State $\text{RollRet}_i \gets (P_i / P_i^{\text{dirty}}) \times D_i \times \text{Roll}_i$
+    \State $C_i^{\text{long}} \gets \text{CY}_i - r^{\text{fund}} + \text{RollRet}_i$
+    \State $C_i^{\text{short}} \gets r_i^{\text{repo}} - \text{CY}_i - \phi_i - \text{RollRet}_i$
+    \State $S_i^{\text{long}} \gets C_i^{\text{long}} / \sigma_i$
+    \State $S_i^{\text{short}} \gets C_i^{\text{short}} / \sigma_i$
+\EndFor
+
+\State
+\State \textbf{// Step 2: Filter for Profitability}
+\State $\mathcal{U}^{\text{long}} \gets \{i : C_i^{\text{long}} > 0\}$
+\State $\mathcal{U}^{\text{short}} \gets \{i : C_i^{\text{short}} > 0 \text{ and } \text{Borrowable}_i = \text{True}\}$
+
+\State
+\State \textbf{// Step 3: Rank Within Profitable Universe}
+\State Sort $\mathcal{U}^{\text{long}}$ by $S_i^{\text{long}}$ descending
+\State Sort $\mathcal{U}^{\text{short}}$ by $S_i^{\text{short}}$ descending \Comment{Highest positive short carry}
+
+\State
+\State \textbf{// Step 4: Select Top Percentile}
+\State $n^{\text{long}} \gets \lceil 0.30 \times |\mathcal{U}^{\text{long}}| \rceil$
+\State $n^{\text{short}} \gets \lceil 0.30 \times |\mathcal{U}^{\text{short}}| \rceil$
+\State $\mathcal{L} \gets$ Top $n^{\text{long}}$ bonds from sorted $\mathcal{U}^{\text{long}}$
+\State $\mathcal{S} \gets$ Top $n^{\text{short}}$ bonds from sorted $\mathcal{U}^{\text{short}}$
+
+\State
+\State \textbf{// Step 5: Remove Any Overlaps}
+\State $\mathcal{L} \gets \mathcal{L} \setminus (\mathcal{L} \cap \mathcal{S})$
+\State $\mathcal{S} \gets \mathcal{S} \setminus (\mathcal{L} \cap \mathcal{S})$
+
+\State
+\State \Return $\mathcal{L}$, $\mathcal{S}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Weight Calculation}
+
+\begin{definition}[Signal Intensity Weights - Long Leg]
+\begin{formulabox}
+\begin{equation}
+w_i^{\text{long}} = \frac{S_i^{\text{long}}}{\displaystyle\sum_{j \in \mathcal{L}} S_j^{\text{long}}} \times W^{\text{long, target}}
+\end{equation}
+\end{formulabox}
+where $W^{\text{long, target}}$ is the target gross long exposure (e.g., 100\%).
+\end{definition}
+
+\begin{definition}[Signal Intensity Weights - Short Leg]
+\begin{formulabox}
+\begin{equation}
+w_i^{\text{short}} = \frac{S_i^{\text{short}}}{\displaystyle\sum_{j \in \mathcal{S}} S_j^{\text{short}}} \times W^{\text{short, target}}
+\end{equation}
+\end{formulabox}
+where $W^{\text{short, target}}$ is the target gross short exposure (e.g., 100\%).
+
+Note: Since we filtered for $C^{\text{short}} > 0$, all $S_i^{\text{short}} > 0$ in the short portfolio.
+\end{definition}
+
+\subsection{Handling Unequal Leg Sizes}
+
+Due to asymmetry, expect $|\mathcal{U}^{\text{short}}| \ll |\mathcal{U}^{\text{long}}|$. Options:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Accept imbalance}: Run net long (or scale down long leg)
+    \item \textbf{Force balance}: Set $W^{\text{short, target}} = W^{\text{long, target}}$ and accept concentration in shorts
+    \item \textbf{Relax short filter}: Include bonds with $C^{\text{short}} > -\epsilon$ for small $\epsilon$
+\end{enumerate}
+
+%=============================================================================
+\section{Constraints}
+%=============================================================================
+
+\subsection{Concentration Limit}
+
+\begin{equation}
+|w_i| \leq w^{\text{max}} \quad \text{(e.g., } w^{\text{max}} = 10\%\text{)}
+\end{equation}
+
+If a weight exceeds the limit, cap it and redistribute the excess pro-rata to other positions in the same leg.
+
+\subsection{Liquidity Limit}
+
+\begin{equation}
+|w_i| \times \text{NAV} \leq k \times \text{ADV}_i \quad \text{(e.g., } k = 5\%\text{)}
+\end{equation}
+
+where $\text{ADV}_i$ is the average daily trading volume for bond $i$.
+
+\subsection{Borrowability Constraint (Shorts Only)}
+
+\begin{equation}
+w_i^{\text{short}} = 0 \quad \text{if bond } i \text{ is not borrowable}
+\end{equation}
+
+Check with securities lending desk or use Markit/DataLend availability data.
+
+%=============================================================================
+\section{Data Requirements}
+%=============================================================================
+
+\subsection{Bond Data}
+
+\begin{table}[H]
+\centering
+\caption{Bond Data Requirements}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Field} & \textbf{Source} & \textbf{Frequency} & \textbf{Used For} \\
+\midrule
+Clean Price $P$ & TRACE, Bloomberg & Daily & Carry calculation \\
+Accrued Interest AI & Calculated & Daily & Dirty price \\
+Coupon $c$ & Reference data & Static & Carry calculation \\
+Maturity Date & Reference data & Static & Tenor, curve lookup \\
+Modified Duration $D$ & Bloomberg, calculated & Daily & Rolldown \\
+Rating & S\&P, Moody's, Fitch & On change & Curve assignment \\
+Sector & GICS, ICB & Static & Curve assignment \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Rate Data}
+
+\begin{table}[H]
+\centering
+\caption{Rate Data Requirements}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Field} & \textbf{Source} & \textbf{Frequency} & \textbf{Used For} \\
+\midrule
+Funding Rate $r^{\text{fund}}$ & Treasury desk & Daily & Long carry \\
+GC Repo Rate & DTCC, Fed & Daily & Short carry baseline \\
+Bond-Specific Repo $r_i^{\text{repo}}$ & Repo desk, Markit & Daily & Short carry \\
+Borrow Fee $\phi_i$ & Sec lending, DataLend & Daily & Short carry \\
+Credit Curve Yields $Y_{t,\tau}$ & Built from bonds & Daily & Rolldown \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Default Values}
+
+When bond-specific data is unavailable:
+
+\begin{table}[H]
+\centering
+\caption{Default Parameter Values}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Default} & \textbf{Rationale} \\
+\midrule
+$r^{\text{fund}}$ & SOFR + 25 bps & Typical prime brokerage \\
+$r^{\text{repo}}$ & SOFR $-$ 10 bps & Slight discount to GC \\
+$\phi$ (Liquid IG) & 25 bps & Standard IG fee \\
+$\phi$ (Illiquid IG) & 50 bps & Higher for less liquid \\
+$\phi$ (HY) & 125 bps & High yield premium \\
+$\phi$ (Distressed) & 300 bps & Hard to borrow \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Implementation Algorithm}
+%=============================================================================
+
+\begin{algorithm}[H]
+\caption{Complete Asymmetric Carry Strategy}
+\begin{algorithmic}[1]
+\State \textbf{// DAILY: Data Collection and Signal Update}
+\For{each bond $i$ in universe}
+    \State Fetch: $P_i$, $\text{AI}_i$, $c_i$, $D_i$, $\sigma_i$, $\phi_i$, $r_i^{\text{repo}}$
+    \State Compute: $P_i^{\text{dirty}} \gets P_i + \text{AI}_i$
+    \State Compute: $\tau_i \gets$ years to maturity
+    \State Fetch: $Y_{t,\tau_i}$, $Y_{t,\tau_i - 1}$ from credit curve
+    \State Compute: $\text{Roll}_i \gets Y_{t,\tau_i} - Y_{t,\tau_i - 1}$
+    
+    \State
+    \State \textbf{// Long Carry}
+    \State $\text{CY}_i \gets c_i / (P_i^{\text{dirty}} / 100)$
+    \State $\text{RollRet}_i \gets (P_i / P_i^{\text{dirty}}) \times D_i \times \text{Roll}_i$
+    \State $C_i^{\text{long}} \gets \text{CY}_i - r^{\text{fund}} + \text{RollRet}_i$
+    
+    \State
+    \State \textbf{// Short Carry}
+    \State $C_i^{\text{short}} \gets r_i^{\text{repo}} - \text{CY}_i - \phi_i - \text{RollRet}_i$
+    
+    \State
+    \State \textbf{// Signals}
+    \State $S_i^{\text{long}} \gets C_i^{\text{long}} / \max(\sigma_i, 0.01)$
+    \State $S_i^{\text{short}} \gets C_i^{\text{short}} / \max(\sigma_i, 0.01)$
+\EndFor
+
+\State
+\State \textbf{// MONTHLY: Portfolio Construction}
+\State $\mathcal{U}^{\text{long}} \gets \{i : C_i^{\text{long}} > 0\}$
+\State $\mathcal{U}^{\text{short}} \gets \{i : C_i^{\text{short}} > 0 \text{ and borrowable}\}$
+
+\State
+\State \textbf{// Select top 30\% from each profitable universe}
+\State $\mathcal{L} \gets$ Top 30\% of $\mathcal{U}^{\text{long}}$ by $S^{\text{long}}$ (descending)
+\State $\mathcal{S} \gets$ Top 30\% of $\mathcal{U}^{\text{short}}$ by $S^{\text{short}}$ (descending)
+
+\State
+\State \textbf{// Calculate weights}
+\State $W^{\text{long}} \gets \sum_{j \in \mathcal{L}} S_j^{\text{long}}$
+\State $W^{\text{short}} \gets \sum_{j \in \mathcal{S}} S_j^{\text{short}}$
+\For{$i \in \mathcal{L}$}
+    \State $w_i \gets +S_i^{\text{long}} / W^{\text{long}}$ \Comment{Long weights sum to 1}
+\EndFor
+\For{$i \in \mathcal{S}$}
+    \State $w_i \gets -S_i^{\text{short}} / W^{\text{short}}$ \Comment{Short weights sum to $-1$}
+\EndFor
+
+\State
+\State \textbf{// Apply constraints}
+\State Apply concentration limits ($|w_i| \leq 10\%$)
+\State Apply liquidity limits ($|w_i| \times \text{NAV} \leq 5\% \times \text{ADV}_i$)
+\State Renormalize to maintain gross exposures
+
+\State
+\State \textbf{// Generate trades}
+\State $\Delta w_i \gets w_i^{\text{new}} - w_i^{\text{current}}$
+\State Execute rebalancing trades
+\end{algorithmic}
+\end{algorithm}
+
+%=============================================================================
+\section{Parameter Summary}
+%=============================================================================
+
+\begin{table}[H]
+\centering
+\caption{Strategy Parameters}
+\begin{tabular}{@{}llp{6cm}@{}}
+\toprule
+\textbf{Parameter} & \textbf{Default} & \textbf{Description} \\
+\midrule
+$r^{\text{fund}}$ & SOFR + 25 bps & Cash borrowing rate for longs \\
+$r^{\text{repo}}$ baseline & SOFR $-$ 10 bps & Repo rate for liquid IG \\
+$\phi^{\text{IG}}$ & 35 bps & Default IG borrow fee \\
+$\phi^{\text{HY}}$ & 125 bps & Default HY borrow fee \\
+Selection percentile & 30\% & Top/bottom of profitable universe \\
+Max position size & 10\% & Concentration limit \\
+Volume participation & 5\% of ADV & Liquidity limit \\
+Volatility lookback & 252 days & For $\sigma$ calculation \\
+Volatility floor & 1\% & Minimum volatility \\
+Rebalancing frequency & Monthly & Trade frequency \\
+Day count & Actual/360 & For rate calculations \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Expected Portfolio Characteristics}
+%=============================================================================
+
+\subsection{Typical Asymmetry Effects}
+
+Due to borrow costs, expect:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Fewer profitable shorts}: $|\mathcal{U}^{\text{short}}| \ll |\mathcal{U}^{\text{long}}|$
+    \item \textbf{Higher quality threshold for shorts}: Only bonds with very negative symmetric carry overcome the hurdle
+    \item \textbf{Short concentration in liquid names}: Borrowability and low fees push shorts toward larger issues
+    \item \textbf{Natural long bias}: May need to scale down long leg or accept net long exposure
+\end{enumerate}
+
+\subsection{P\&L Attribution}
+
+Track P\&L by component:
+
+\begin{align}
+\text{P\&L}^{\text{long}} &= \sum_{i \in \mathcal{L}} w_i \times \left[\text{Coupon} - \text{Financing} + \text{Rolldown} + \text{Spread Change}\right] \\
+\text{P\&L}^{\text{short}} &= \sum_{j \in \mathcal{S}} |w_j| \times \left[\text{Repo Int} - \text{Coupon} - \text{Fee} - \text{Rolldown} - \text{Spread Change}\right]
+\end{align}
+
+%=============================================================================
+\section{Appendix: Formula Summary}
+%=============================================================================
+
+\subsection{Core Formulas}
+
+\begin{table}[H]
+\centering
+\caption{Formula Quick Reference}
+\begin{tabular}{@{}lp{10cm}@{}}
+\toprule
+\textbf{Quantity} & \textbf{Formula} \\
+\midrule
+Dirty Price & $P^{\text{dirty}} = P + \text{AI}$ \\[0.3cm]
+Current Yield & $\text{CY} = c / (P^{\text{dirty}} / 100)$ \\[0.3cm]
+Rolldown & $\text{Roll} = Y_{\tau} - Y_{\tau - 1}$ \\[0.3cm]
+Rolldown Return & $\text{RollRet} = (P / P^{\text{dirty}}) \times D \times \text{Roll}$ \\[0.3cm]
+Long Carry (ann.) & $C^{\text{long}} = \text{CY} - r^{\text{fund}} + \text{RollRet}$ \\[0.3cm]
+Short Carry (ann.) & $C^{\text{short}} = r^{\text{repo}} - \text{CY} - \phi - \text{RollRet}$ \\[0.3cm]
+Asymmetry & $\delta = r^{\text{repo}} - r^{\text{fund}} - \phi$ \\[0.3cm]
+Identity & $C^{\text{short}} + C^{\text{long}} = \delta$ \\[0.3cm]
+Long Signal & $S^{\text{long}} = C^{\text{long}} / \sigma$ \\[0.3cm]
+Short Signal & $S^{\text{short}} = C^{\text{short}} / \sigma$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cash Flow Formulas (Period $\Delta t$ days)}
+
+\begin{table}[H]
+\centering
+\caption{Cash Flow Components}
+\begin{tabular}{@{}llp{7cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Long} & \textbf{Short} \\
+\midrule
+Coupon/Interest & $+N \times c \times \Delta t / 360$ & $-N \times c \times \Delta t / 360$ \\[0.2cm]
+Financing/Repo & $-\text{MV} \times r^{\text{fund}} \times \Delta t / 360$ & $+\text{MV} \times r^{\text{repo}} \times \Delta t / 360$ \\[0.2cm]
+Borrow Fee & --- & $-\text{MV} \times \phi \times \Delta t / 360$ \\[0.2cm]
+Rolldown & $+N \times (P/100) \times D \times \text{Roll}$ & $-N \times (P/100) \times D \times \text{Roll}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}
