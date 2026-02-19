@@ -1,0 +1,411 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{array}
+\usepackage{tabularx}
+
+\geometry{margin=0.85in}
+\hypersetup{colorlinks=true,linkcolor=blue}
+
+\definecolor{formulabg}{RGB}{240,245,255}
+\definecolor{longbg}{RGB}{230,255,230}
+\definecolor{shortbg}{RGB}{255,230,230}
+\definecolor{warnbg}{RGB}{255,250,220}
+
+\newtcolorbox{formulabox}{colback=formulabg,colframe=blue!40,boxrule=0.5pt,arc=3pt}
+\newtcolorbox{longbox}{colback=longbg,colframe=green!50!black,boxrule=0.5pt,arc=3pt,title=Long Position}
+\newtcolorbox{shortbox}{colback=shortbg,colframe=red!50!black,boxrule=0.5pt,arc=3pt,title=Short Position}
+\newtcolorbox{warnbox}{colback=warnbg,colframe=orange!70,boxrule=0.5pt,arc=3pt,title=Key Result}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Carry Calculations with Margin}
+\lhead{Corporate Bonds}
+\rfoot{Page \thepage}
+\setlength{\headheight}{14pt}
+
+\title{\textbf{Corporate Bond Carry Calculations}\\[0.3cm]
+\large With Margin Funding for Longs and Shorts}
+\author{Quantitative Research}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+%=============================================================================
+\section{Funding Rate Definitions}
+%=============================================================================
+
+You fund margin for both long and short positions. The funding rates differ:
+
+\begin{table}[H]
+\centering
+\caption{Funding Rate Structure}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Position} & \textbf{Rate Formula} & \textbf{Description} \\
+\midrule
+Long margin & $r^{\text{long}} = \text{SOFR} + X$ & 
+Rate you \textbf{pay} to borrow cash to fund your long margin position. 
+Calculated as SOFR plus a credit spread $X$. \\[0.2cm]
+Short margin & $r^{\text{short}} = \text{EFFR} - Y$ & 
+Rate you \textbf{earn} on short sale proceeds (short rebate). 
+Calculated as EFFR minus a haircut $Y$. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\textbf{Typical parameter values:}
+\begin{itemize}
+    \item $X$ = 15--50 bps (depends on your creditworthiness, prime broker relationship)
+    \item $Y$ = 0--10 bps (short rebate haircut charged by broker)
+    \item Since EFFR $\approx$ SOFR, we typically have $r^{\text{short}} < r^{\text{long}}$
+\end{itemize}
+
+%=============================================================================
+\section{Variable Definitions}
+%=============================================================================
+
+\subsection{Bond Variables}
+
+\begin{table}[H]
+\centering
+\caption{Bond-Specific Variables}
+\renewcommand{\arraystretch}{1.3}
+\small
+\begin{tabularx}{\textwidth}{@{}c l X c@{}}
+\toprule
+\textbf{Symbol} & \textbf{Name} & \textbf{Definition} & \textbf{Units} \\
+\midrule
+$N$ & Notional & Face value (par amount) of bond position. & \$ \\
+$P$ & Clean Price & Quoted price excluding accrued interest, as \% of par. & \% of par \\
+AI & Accrued Int. & Interest accumulated since last coupon date. & \% of par \\
+$P^{\text{dirty}}$ & Dirty Price & Full settlement price: $P^{\text{dirty}} = P + \text{AI}$. & \% of par \\
+$c$ & Coupon & Annual coupon rate as \% of face value. & \% ann. \\
+$D$ & Duration & Modified duration: $-\frac{1}{P}\frac{dP}{dy}$. & years \\
+MV & Market Value & Dollar value of position: $\text{MV} = N \times P^{\text{dirty}}/100$. & \$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Credit Curve Variables}
+
+\begin{table}[H]
+\centering
+\caption{Curve and Rolldown Variables}
+\renewcommand{\arraystretch}{1.3}
+\small
+\begin{tabularx}{\textwidth}{@{}c l X c@{}}
+\toprule
+\textbf{Symbol} & \textbf{Name} & \textbf{Definition} & \textbf{Units} \\
+\midrule
+$\tau$ & Tenor & Time to maturity of the bond. & years \\
+$Y_{t,\tau}$ & Curve Yield & Yield from fitted credit curve at tenor $\tau$. & \% \\
+Roll & Rolldown & Curve slope: $\text{Roll} = Y_{t,\tau} - Y_{t,\tau-1}$. Positive = upward sloping. & \% \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Funding Variables}
+
+\begin{table}[H]
+\centering
+\caption{Funding and Financing Variables}
+\renewcommand{\arraystretch}{1.3}
+\small
+\begin{tabularx}{\textwidth}{@{}c l X c@{}}
+\toprule
+\textbf{Symbol} & \textbf{Name} & \textbf{Definition} & \textbf{Units} \\
+\midrule
+SOFR & SOFR & Secured Overnight Financing Rate (benchmark). & \% ann. \\
+EFFR & EFFR & Effective Federal Funds Rate (benchmark). & \% ann. \\
+$X$ & Long Spread & Your spread over SOFR for margin borrowing. & \% ann. \\
+$Y$ & Short Haircut & Broker's discount from EFFR on your short rebate. & \% ann. \\
+$r^{\text{long}}$ & Long Rate & $\text{SOFR} + X$. Rate you \textbf{pay} to fund longs. & \% ann. \\
+$r^{\text{short}}$ & Short Rate & $\text{EFFR} - Y$. Rate you \textbf{earn} on short proceeds. & \% ann. \\
+$\phi$ & Borrow Fee & Securities lending fee to borrow bond for shorting. & \% ann. \\
+$\Delta t$ & Hold Period & Days between rebalancing. & days \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%=============================================================================
+\section{Long Position Carry}
+%=============================================================================
+
+\begin{longbox}
+\textbf{Transaction:} Buy $N$ notional of bond at dirty price $P^{\text{dirty}}$, fund the margin at rate $r^{\text{long}}$.
+
+\vspace{0.3cm}
+\textbf{Cash Flows over holding period $\Delta t$:}
+
+\begin{enumerate}
+    \item \textbf{Coupon Accrual} (you receive):
+    \begin{equation}
+    +\, N \times c \times \frac{\Delta t}{360}
+    \end{equation}
+    
+    \item \textbf{Margin Funding Cost} (you pay):
+    \begin{equation}
+    -\, N \times \frac{P^{\text{dirty}}}{100} \times r^{\text{long}} \times \frac{\Delta t}{360}
+    \end{equation}
+    
+    \item \textbf{Rolldown P\&L} (receive if curve upward sloping):
+    \begin{equation}
+    +\, N \times \frac{P}{100} \times D \times \text{Roll}
+    \end{equation}
+\end{enumerate}
+\end{longbox}
+
+\subsection{Long Carry Formula}
+
+\begin{formulabox}
+\textbf{Cash Terms (over $\Delta t$ days):}
+
+Let $\text{MV} = N \times \frac{P^{\text{dirty}}}{100}$ denote market value. Then:
+\begin{align}
+\text{Carry}^{\text{long}} &= N \times c \times \frac{\Delta t}{360} && \text{(coupon accrual)} \nonumber \\[0.2cm]
+&\quad - \text{MV} \times r^{\text{long}} \times \frac{\Delta t}{360} && \text{(funding cost)} \nonumber \\[0.2cm]
+&\quad + N \times \frac{P}{100} \times D \times \text{Roll} && \text{(rolldown gain)}
+\end{align}
+\end{formulabox}
+
+\begin{formulabox}
+\textbf{Annualized Percentage Return:}
+\begin{equation}
+\boxed{
+C^{\text{long}} = \underbrace{\frac{c}{P^{\text{dirty}}/100}}_{\text{Current Yield}} - \underbrace{r^{\text{long}}}_{\substack{\text{Margin} \\ \text{Funding}}} + \underbrace{\frac{P}{P^{\text{dirty}}} \times D \times \text{Roll}}_{\text{Rolldown Return}}
+}
+\end{equation}
+\end{formulabox}
+
+Substituting $r^{\text{long}} = \text{SOFR} + X$:
+
+\begin{equation}
+C^{\text{long}} = \frac{c}{P^{\text{dirty}}/100} - (\text{SOFR} + X) + \frac{P}{P^{\text{dirty}}} \times D \times \text{Roll}
+\end{equation}
+
+%=============================================================================
+\section{Short Position Carry}
+%=============================================================================
+
+\begin{shortbox}
+\textbf{Transaction:} Borrow $N$ notional of bond, sell at dirty price $P^{\text{dirty}}$, earn rebate at rate $r^{\text{short}}$.
+
+\vspace{0.3cm}
+\textbf{Cash Flows over holding period $\Delta t$:}
+
+\begin{enumerate}
+    \item \textbf{Short Rebate} (you receive on sale proceeds):
+    \begin{equation}
+    +\, N \times \frac{P^{\text{dirty}}}{100} \times r^{\text{short}} \times \frac{\Delta t}{360}
+    \end{equation}
+    
+    \item \textbf{Coupon Owed to Lender} (you pay):
+    \begin{equation}
+    -\, N \times c \times \frac{\Delta t}{360}
+    \end{equation}
+    
+    \item \textbf{Borrow Fee} (you pay to securities lender):
+    \begin{equation}
+    -\, N \times \frac{P^{\text{dirty}}}{100} \times \phi \times \frac{\Delta t}{360}
+    \end{equation}
+    
+    \item \textbf{Rolldown P\&L} (you pay if curve upward sloping):
+    \begin{equation}
+    -\, N \times \frac{P}{100} \times D \times \text{Roll}
+    \end{equation}
+\end{enumerate}
+\end{shortbox}
+
+\subsection{Short Carry Formula}
+
+\begin{formulabox}
+\textbf{Cash Terms (over $\Delta t$ days):}
+
+Let $\text{MV} = N \times \frac{P^{\text{dirty}}}{100}$ denote market value. Then:
+\begin{align}
+\text{Carry}^{\text{short}} &= \text{MV} \times r^{\text{short}} \times \frac{\Delta t}{360} && \text{(short rebate)} \nonumber \\[0.2cm]
+&\quad - N \times c \times \frac{\Delta t}{360} && \text{(coupon owed)} \nonumber \\[0.2cm]
+&\quad - \text{MV} \times \phi \times \frac{\Delta t}{360} && \text{(borrow fee)} \nonumber \\[0.2cm]
+&\quad - N \times \frac{P}{100} \times D \times \text{Roll} && \text{(rolldown cost)}
+\end{align}
+\end{formulabox}
+
+\begin{formulabox}
+\textbf{Annualized Percentage Return:}
+\begin{equation}
+\boxed{
+C^{\text{short}} = \underbrace{r^{\text{short}}}_{\substack{\text{Short} \\ \text{Rebate}}} - \underbrace{\frac{c}{P^{\text{dirty}}/100}}_{\substack{\text{Current Yield} \\ \text{Owed}}} - \underbrace{\phi}_{\substack{\text{Borrow} \\ \text{Fee}}} - \underbrace{\frac{P}{P^{\text{dirty}}} \times D \times \text{Roll}}_{\text{Rolldown Cost}}
+}
+\end{equation}
+\end{formulabox}
+
+Substituting $r^{\text{short}} = \text{EFFR} - Y$:
+
+\begin{equation}
+C^{\text{short}} = (\text{EFFR} - Y) - \frac{c}{P^{\text{dirty}}/100} - \phi - \frac{P}{P^{\text{dirty}}} \times D \times \text{Roll}
+\end{equation}
+
+%=============================================================================
+\section{Asymmetry Analysis}
+%=============================================================================
+
+Adding long and short carry:
+
+\begin{align}
+C^{\text{long}} + C^{\text{short}} &= \left[\frac{c}{P^{\text{dirty}}/100} - r^{\text{long}} + \frac{P}{P^{\text{dirty}}} D \cdot \text{Roll}\right] \nonumber \\[0.2cm]
+&\quad + \left[r^{\text{short}} - \frac{c}{P^{\text{dirty}}/100} - \phi - \frac{P}{P^{\text{dirty}}} D \cdot \text{Roll}\right] \\[0.3cm]
+&= r^{\text{short}} - r^{\text{long}} - \phi
+\end{align}
+
+\begin{warnbox}
+\textbf{Asymmetry Term:}
+\begin{equation}
+\delta = r^{\text{short}} - r^{\text{long}} - \phi = (\text{EFFR} - Y) - (\text{SOFR} + X) - \phi
+\end{equation}
+
+Since EFFR $\approx$ SOFR:
+\begin{equation}
+\boxed{\delta \approx -X - Y - \phi < 0}
+\end{equation}
+
+\textbf{Example:} If $X = 25$ bps, $Y = 5$ bps, $\phi = 35$ bps:
+\begin{equation}
+\delta \approx -0.25\% - 0.05\% - 0.35\% = -0.65\%
+\end{equation}
+
+The asymmetry is \textbf{always negative}, creating a hurdle for profitable shorts.
+\end{warnbox}
+
+%=============================================================================
+\section{Summary Formulas}
+%=============================================================================
+
+\begin{table}[H]
+\centering
+\caption{Carry Calculation Quick Reference}
+\renewcommand{\arraystretch}{1.6}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Quantity} & \textbf{Formula} \\
+\midrule
+Current Yield & $\text{CY} = \dfrac{c}{P^{\text{dirty}}/100}$ \\[0.2cm]
+Rolldown Return & $\text{RollRet} = \dfrac{P}{P^{\text{dirty}}} \times D \times \text{Roll}$ \\
+\midrule
+\textbf{Long Carry} & $C^{\text{long}} = \text{CY} - r^{\text{long}} + \text{RollRet}$ \\
+& $\phantom{C^{\text{long}}} = \text{CY} - (\text{SOFR} + X) + \text{RollRet}$ \\
+\midrule
+\textbf{Short Carry} & $C^{\text{short}} = r^{\text{short}} - \text{CY} - \phi - \text{RollRet}$ \\
+& $\phantom{C^{\text{short}}} = (\text{EFFR} - Y) - \text{CY} - \phi - \text{RollRet}$ \\
+\midrule
+Asymmetry & $\delta = r^{\text{short}} - r^{\text{long}} - \phi \approx -(X + Y + \phi)$ \\[0.1cm]
+Identity & $C^{\text{short}} = -C^{\text{long}} + \delta$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%=============================================================================
+\section{Numerical Example}
+%=============================================================================
+
+\textbf{Bond:} ABC Corp 5.50\% Senior Notes due 2030
+
+\begin{table}[H]
+\centering
+\caption{Example Input Data}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}ll|ll@{}}
+\toprule
+\multicolumn{2}{c|}{\textbf{Bond Data}} & \multicolumn{2}{c}{\textbf{Market Rates}} \\
+\midrule
+Clean Price $P$ & 98.00 & SOFR & 4.30\% \\
+Accrued Interest AI & 1.50 & EFFR & 4.33\% \\
+Dirty Price $P^{\text{dirty}}$ & 99.50 & $X$ (long spread) & 0.25\% \\
+Coupon $c$ & 5.50\% & $Y$ (short haircut) & 0.05\% \\
+Modified Duration $D$ & 5.8 years & Borrow fee $\phi$ & 0.35\% \\
+Rolldown Roll & 0.12\% & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Step 1: Calculate Funding Rates}
+\begin{align}
+r^{\text{long}} &= \text{SOFR} + X = 4.30\% + 0.25\% = 4.55\% \\
+r^{\text{short}} &= \text{EFFR} - Y = 4.33\% - 0.05\% = 4.28\%
+\end{align}
+
+\subsection{Step 2: Calculate Intermediate Terms}
+\begin{align}
+\text{CY} &= \frac{c}{P^{\text{dirty}}/100} = \frac{5.50\%}{0.995} = 5.53\% \\[0.3cm]
+\text{RollRet} &= \frac{P}{P^{\text{dirty}}} \times D \times \text{Roll} = \frac{98.00}{99.50} \times 5.8 \times 0.12\% = 0.69\%
+\end{align}
+
+\subsection{Step 3: Calculate Carry}
+
+\textbf{Long Carry:}
+\begin{equation}
+C^{\text{long}} = \text{CY} - r^{\text{long}} + \text{RollRet} = 5.53\% - 4.55\% + 0.69\% = \boxed{+1.67\%}
+\end{equation}
+
+\textbf{Short Carry:}
+\begin{equation}
+C^{\text{short}} = r^{\text{short}} - \text{CY} - \phi - \text{RollRet} = 4.28\% - 5.53\% - 0.35\% - 0.69\% = \boxed{-2.29\%}
+\end{equation}
+
+\subsection{Step 4: Verify Asymmetry}
+\begin{align}
+\delta &= r^{\text{short}} - r^{\text{long}} - \phi = 4.28\% - 4.55\% - 0.35\% = -0.62\% \\[0.2cm]
+C^{\text{short}} + C^{\text{long}} &= -2.29\% + 1.67\% = -0.62\% = \delta \quad \checkmark
+\end{align}
+
+\subsection{Interpretation}
+
+\begin{itemize}
+    \item \textbf{Long}: Earns +1.67\% annualized carry $\Rightarrow$ \textit{Long candidate}
+    \item \textbf{Short}: Costs 2.29\% annualized $\Rightarrow$ \textit{Not a short candidate}
+    \item The 62 bps asymmetry ($X + Y + \phi$) makes shorting structurally more expensive
+\end{itemize}
+
+%=============================================================================
+\section{When is Shorting Profitable?}
+%=============================================================================
+
+For $C^{\text{short}} > 0$:
+
+\begin{equation}
+r^{\text{short}} - \text{CY} - \phi - \text{RollRet} > 0
+\end{equation}
+
+Rearranging:
+
+\begin{equation}
+\boxed{\text{CY} + \text{RollRet} < r^{\text{short}} - \phi = (\text{EFFR} - Y) - \phi}
+\end{equation}
+
+\textbf{This requires the bond to have:}
+\begin{itemize}
+    \item \textbf{Low current yield}: High price (premium bond) or low coupon
+    \item \textbf{Flat or inverted curve}: Zero or negative rolldown
+    \item \textbf{Low borrow fee}: Liquid, widely-held bond
+\end{itemize}
+
+\textbf{Typical profitable short candidates:}
+\begin{itemize}
+    \item Overvalued bonds trading at significant premium
+    \item Credits with inverted spread curves (short-end spreads $>$ long-end)
+    \item On-the-run liquid bonds with minimal borrow costs
+    \item Bonds with negative convexity or call risk priced in
+\end{itemize}
+
+\end{document}
